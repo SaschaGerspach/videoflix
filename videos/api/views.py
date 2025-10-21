@@ -1,19 +1,20 @@
 import hashlib
 
 from rest_framework import status
-from rest_framework.exceptions import NotAcceptable, NotAuthenticated, ParseError
-from rest_framework.renderers import BaseRenderer, JSONRenderer, StaticHTMLRenderer
+from rest_framework.exceptions import (NotAcceptable, NotAuthenticated,
+                                       ParseError)
+from rest_framework.renderers import (BaseRenderer, JSONRenderer,
+                                      StaticHTMLRenderer)
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from videos.api.serializers import (
-    VideoListRequestSerializer,
-    VideoSegmentContentRequestSerializer,
-    VideoSegmentRequestSerializer,
-    VideoSerializer,
-)
+from videos.api.serializers import (VideoListRequestSerializer,
+                                    VideoSegmentContentRequestSerializer,
+                                    VideoSegmentRequestSerializer,
+                                    VideoSerializer)
 from videos.domain.models import VideoSegment, VideoStream
-from videos.domain.selectors import get_video_segment, get_video_stream, list_videos
+from videos.domain.selectors import (get_video_segment, get_video_stream,
+                                     list_videos)
 
 
 class M3U8Renderer(StaticHTMLRenderer):

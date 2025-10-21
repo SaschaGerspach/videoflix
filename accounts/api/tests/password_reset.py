@@ -1,5 +1,6 @@
+from urllib.parse import parse_qs, urlparse
+
 import pytest
-from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
@@ -9,7 +10,6 @@ from django.utils.encoding import force_str
 from django.utils.http import urlsafe_base64_decode
 from rest_framework import status
 from rest_framework.test import APIClient
-from urllib.parse import parse_qs, urlparse
 
 pytestmark = pytest.mark.django_db
 

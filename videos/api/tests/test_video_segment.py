@@ -88,7 +88,8 @@ def test_segment_playlist_returns_404_for_missing_video_or_resolution(
     response = authenticated_client.get(segment_url(video.id, "1080p"))
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
-    assert response.json() == {"errors": {"non_field_errors": ["Video manifest not found."]}}
+    assert response.json() == {"errors": {"non_field_errors": [
+        "Video manifest not found."]}}
 
 
 def test_segment_playlist_rejects_invalid_resolution_format(
@@ -100,7 +101,8 @@ def test_segment_playlist_rejects_invalid_resolution_format(
 
     payload = assert_json_error(response, status.HTTP_400_BAD_REQUEST)
     assert "resolution" in payload["errors"]
-    assert payload["errors"]["resolution"][0].startswith("Invalid resolution format")
+    assert payload["errors"]["resolution"][0].startswith(
+        "Invalid resolution format")
 
 
 def test_segment_playlist_idempotent_for_same_request(
@@ -181,8 +183,9 @@ def test_segment_playlist_returns_json_for_errors_not_m3u8(
 
     response = authenticated_client.get(segment_url(video.id, "invalid"))
 
-    payload = assert_json_error(response, status.HTTP_400_BAD_REQUEST)
-    assert not response["Content-Type"].startswith("application/vnd.apple.mpegurl")
+    assert_json_error(response, status.HTTP_400_BAD_REQUEST)
+    assert not response["Content-Type"].startswith(
+        "application/vnd.apple.mpegurl")
 
 
 @pytest.mark.parametrize("accept_header", ["application/json", "text/plain"])
@@ -200,7 +203,8 @@ def test_segment_playlist_rejects_unacceptable_accept_header(
     )
 
     payload = assert_json_error(response, status.HTTP_406_NOT_ACCEPTABLE)
-    assert payload["errors"]["non_field_errors"][0].startswith("Requested media type not acceptable")
+    assert payload["errors"]["non_field_errors"][0].startswith(
+        "Requested media type not acceptable")
 
 
 @pytest.mark.parametrize("method_name", ["post", "put"])
@@ -216,4 +220,5 @@ def test_segment_playlist_rejects_disallowed_methods(
     response = method(segment_url(video.id, "720p"))
 
     payload = assert_json_error(response, status.HTTP_405_METHOD_NOT_ALLOWED)
-    assert payload["errors"]["non_field_errors"][0].startswith("Method not allowed")
+    assert payload["errors"]["non_field_errors"][0].startswith(
+        "Method not allowed")

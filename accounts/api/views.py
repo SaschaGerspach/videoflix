@@ -1,34 +1,27 @@
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from rest_framework.decorators import api_view, authentication_classes, permission_classes, throttle_classes
-from rest_framework.permissions import AllowAny
-
-from accounts.api.serializers import (
-    ActivationSerializer,
-    LoginSerializer,
-    LogoutSerializer,
-    RegistrationSerializer,
-    PasswordResetSerializer,
-    PasswordConfirmSerializer,
-    TokenRefreshSerializer,
-    format_validation_error,
-)
-from accounts.domain.services import (
-    AuthenticationError,
-    activate_user,
-    create_inactive_user,
-    confirm_password_reset,
-    login_user,
-    logout_user,
-    send_password_reset_email,
-    refresh_access_token,
-    send_activation_email,
-)
-from rest_framework.response import Response
 from rest_framework import status
-from rest_framework.throttling import ScopedRateThrottle
+from rest_framework.decorators import (api_view, authentication_classes,
+                                       permission_classes, throttle_classes)
 from rest_framework.exceptions import ParseError
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
+
+from accounts.api.serializers import (ActivationSerializer, LoginSerializer,
+                                      LogoutSerializer,
+                                      PasswordConfirmSerializer,
+                                      PasswordResetSerializer,
+                                      RegistrationSerializer,
+                                      TokenRefreshSerializer,
+                                      format_validation_error)
+from accounts.domain.services import (AuthenticationError, activate_user,
+                                      confirm_password_reset,
+                                      create_inactive_user, login_user,
+                                      logout_user, refresh_access_token,
+                                      send_activation_email,
+                                      send_password_reset_email)
 
 
 @api_view(["POST"])

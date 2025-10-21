@@ -7,7 +7,6 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
 
-
 pytestmark = pytest.mark.django_db
 
 EXPECTED_PATH = getattr(settings, "SESSION_COOKIE_PATH", "/")

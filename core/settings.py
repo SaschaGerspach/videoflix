@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
+import os
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -93,6 +94,18 @@ DATABASES = {
     }
 }
 
+if os.environ.get("USE_SQLITE_FOR_TESTS") == "1":
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "test_db.sqlite3",
+        }
+    }
+    EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
+    PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
+    CACHES = {"default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
+
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
@@ -171,7 +184,11 @@ REST_FRAMEWORK = {
         "user": "100/min",
         "login": "5/min",
     },
+    "EXCEPTION_HANDLER": "rest_framework.views.exception_handler",
+    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+    "PAGE_SIZE": 20,
 }
+
 
 LOGGING = {
     "version": 1,

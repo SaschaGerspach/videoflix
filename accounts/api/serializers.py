@@ -4,13 +4,11 @@ from typing import Any, Dict
 
 from django.core.exceptions import ValidationError
 
-from accounts.domain.validators import (
-    validate_activation_params,
-    validate_login_payload,
-    validate_registration_payload,
-    validate_password_reset_payload,
-    validate_password_confirm_payload,
-)
+from accounts.domain.validators import (validate_activation_params,
+                                        validate_login_payload,
+                                        validate_password_confirm_payload,
+                                        validate_password_reset_payload,
+                                        validate_registration_payload)
 
 
 class RegistrationSerializer:

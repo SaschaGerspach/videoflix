@@ -1,10 +1,11 @@
 import re
+from urllib.parse import quote
+
 import pytest
 from django.db import IntegrityError
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
-from urllib.parse import quote
 
 from videos.api.serializers import VideoSegmentContentRequestSerializer
 from videos.domain.models import Video

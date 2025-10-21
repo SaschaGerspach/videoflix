@@ -1,6 +1,7 @@
 from django.urls import path
 
-from videos.api.views import VideoListView, VideoSegmentContentView, VideoSegmentView
+from videos.api.views import (VideoListView, VideoSegmentContentView,
+                              VideoSegmentView)
 
 urlpatterns = [
     path("", VideoListView.as_view(), name="video-list"),

@@ -1,12 +1,13 @@
+from urllib.parse import parse_qs, urlparse
+
 import pytest
 from django.contrib.auth import get_user_model
-from django.urls import reverse
-from rest_framework.test import APIClient
-from rest_framework import status
 from django.core import mail
 from django.test import override_settings
+from django.urls import reverse
 from django.utils.http import urlsafe_base64_decode
-from urllib.parse import parse_qs, urlparse
+from rest_framework import status
+from rest_framework.test import APIClient
 
 
 @pytest.fixture

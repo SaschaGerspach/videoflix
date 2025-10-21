@@ -11,11 +11,9 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from accounts.domain.services import (
-    _USER_REFRESH_REVOKE_KEY,
-    is_refresh_token_blacklisted,
-    revoke_all_refresh_tokens_for_user,
-)
+from accounts.domain.services import (_USER_REFRESH_REVOKE_KEY,
+                                      is_refresh_token_blacklisted,
+                                      revoke_all_refresh_tokens_for_user)
 
 pytestmark = pytest.mark.django_db
 
