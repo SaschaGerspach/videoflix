@@ -1,6 +1,8 @@
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from rest_framework.decorators import api_view, authentication_classes, permission_classes, throttle_classes
+from rest_framework.permissions import AllowAny
 
 from accounts.api.serializers import (
     ActivationSerializer,
@@ -23,7 +25,6 @@ from accounts.domain.services import (
     refresh_access_token,
     send_activation_email,
 )
-from rest_framework.decorators import api_view, throttle_classes
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.throttling import ScopedRateThrottle
@@ -31,6 +32,8 @@ from rest_framework.exceptions import ParseError
 
 
 @api_view(["POST"])
+@authentication_classes([])
+@permission_classes([AllowAny])
 def register(request):
     # request.data enthält bereits das geparste JSON
     serializer = RegistrationSerializer(request.data)
@@ -49,6 +52,8 @@ def register(request):
 
 
 @api_view(["POST"])
+@authentication_classes([])
+@permission_classes([AllowAny])
 @throttle_classes([ScopedRateThrottle])
 def login(request):
     serializer = LoginSerializer(request.data)
@@ -59,7 +64,8 @@ def login(request):
     data = serializer.validated_data
 
     try:
-        user, tokens = login_user(email=data["email"], password=data["password"])
+        user, tokens = login_user(
+            email=data["email"], password=data["password"])
     except AuthenticationError as exc:
         status_code = status.HTTP_403_FORBIDDEN if exc.reason == "inactive" else status.HTTP_400_BAD_REQUEST
         return Response({"errors": format_validation_error(exc)}, status=status_code)
@@ -95,8 +101,10 @@ def login(request):
         access_cookie_kwargs["domain"] = domain
         refresh_cookie_kwargs["domain"] = domain
 
-    response.set_cookie("access_token", tokens["access"], **access_cookie_kwargs)
-    response.set_cookie("refresh_token", tokens["refresh"], **refresh_cookie_kwargs)
+    response.set_cookie(
+        "access_token", tokens["access"], **access_cookie_kwargs)
+    response.set_cookie(
+        "refresh_token", tokens["refresh"], **refresh_cookie_kwargs)
 
     return response
 
@@ -107,6 +115,8 @@ if hasattr(login, "cls"):
 
 
 @api_view(["POST"])
+@authentication_classes([])
+@permission_classes([AllowAny])
 def logout_view(request):
     try:
         data = request.data
@@ -152,6 +162,8 @@ def logout_view(request):
 
 
 @api_view(["POST"])
+@authentication_classes([])
+@permission_classes([AllowAny])
 def token_refresh(request):
     try:
         data = request.data
@@ -204,6 +216,8 @@ def token_refresh(request):
 
 
 @api_view(["POST"])
+@authentication_classes([])
+@permission_classes([AllowAny])
 def password_reset(request):
     try:
         data = request.data
@@ -227,6 +241,8 @@ def password_reset(request):
 
 
 @api_view(["POST"])
+@authentication_classes([])
+@permission_classes([AllowAny])
 def password_confirm(request, uidb64: str, token: str):
     try:
         data = request.data
@@ -256,6 +272,8 @@ def password_confirm(request, uidb64: str, token: str):
 
 
 @api_view(["GET"])
+@authentication_classes([])
+@permission_classes([AllowAny])
 def activate(request, uidb64: str, token: str):
     serializer = ActivationSerializer({"uidb64": uidb64, "token": token})
 

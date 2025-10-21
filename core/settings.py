@@ -38,6 +38,15 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'accounts',
+    'rest_framework',
+    'corsheaders',
+    'django.contrib.sites',
+    'rest_framework_simplejwt',
+    'videos',
+    'jobs',
+    'playback',
+    'uploads',
+
 ]
 
 MIDDLEWARE = [
@@ -74,9 +83,13 @@ WSGI_APPLICATION = 'core.wsgi.application'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+    "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": "videoflix",
+        "USER": "videoflix",
+        "PASSWORD": "videoflix",
+        "HOST": "127.0.0.1",
+        "PORT": "5432",
     }
 }
 
