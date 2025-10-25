@@ -1,7 +1,9 @@
 import re
 from urllib.parse import quote
+from uuid import uuid4
 
 import pytest
+from django.contrib.auth import get_user_model
 from django.db import IntegrityError
 from django.urls import reverse
 from rest_framework import status
@@ -34,29 +36,48 @@ def assert_ts_success(response, expected_payload: bytes) -> None:
     assert response.content == expected_payload
 
 
-@pytest.fixture
-def authenticated_client() -> APIClient:
-    from django.contrib.auth import get_user_model
-
+def create_user(prefix: str = "user"):
     user_model = get_user_model()
-    user = user_model.objects.create_user(
-        email="viewer@example.com",
-        username="viewer@example.com",
+    unique = uuid4()
+    return user_model.objects.create_user(
+        email=f"{prefix}-{unique}@example.com",
+        username=f"{prefix}-{unique}@example.com",
         password="pass",
     )
+
+
+def create_video(owner, **overrides):
+    defaults = {
+        "title": "Sample Title",
+        "description": "Sample Description",
+        "thumbnail_url": "http://example.com/sample.jpg",
+        "category": "drama",
+        "is_published": True,
+    }
+    defaults.update(overrides)
+    return Video.objects.create(owner=owner, **defaults)
+
+
+def auth_client_for(user) -> APIClient:
     client = APIClient()
     client.force_authenticate(user=user)
+    client.user = user
+    return client
+
+
+@pytest.fixture
+def authenticated_client() -> APIClient:
+    user = create_user("viewer")
+    client = APIClient()
+    client.force_authenticate(user=user)
+    client.user = user
     return client
 
 
 @pytest.fixture
 def video() -> Video:
-    return Video.objects.create(
-        title="Sample Title",
-        description="Sample Description",
-        thumbnail_url="http://example.com/sample.jpg",
-        category="drama",
-    )
+    owner = create_user("owner")
+    return create_video(owner)
 
 
 @pytest.fixture
@@ -70,6 +91,96 @@ def segment_factory(stream):
         return stream.segments.create(name=name, content=content)
 
     return _factory
+
+
+def test_index_lists_published_videos_from_multiple_owners():
+    owner_a = create_user("ownerA")
+    owner_b = create_user("ownerB")
+    create_video(owner_a, title="Owner A Published", is_published=True)
+    create_video(owner_a, title="Owner A Draft", is_published=False)
+    create_video(owner_b, title="Owner B Published", is_published=True)
+    create_video(owner_b, title="Owner B Draft", is_published=False)
+
+    viewer = create_user("viewer")
+    client = auth_client_for(viewer)
+
+    response = client.get(reverse("video-list"))
+
+    assert response.status_code == status.HTTP_200_OK
+    payload = response.json()
+    titles = {item["title"] for item in payload}
+    assert titles == {"Owner A Published", "Owner B Published"}
+
+
+def test_index_excludes_unpublished_videos_for_other_users():
+    owner = create_user("owner")
+    create_video(owner, title="Private Draft", is_published=False)
+
+    other_user = create_user("other")
+    client = auth_client_for(other_user)
+
+    response = client.get(reverse("video-list"))
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json() == []
+
+
+def test_stream_allows_access_to_published_of_other_user():
+    owner = create_user("owner")
+    video = create_video(owner, is_published=True)
+    stream = video.streams.create(resolution="720p", manifest="#EXTM3U\n")
+    stream.segments.create(name="000.ts", content=b"published")
+
+    viewer = create_user("viewer")
+    client = auth_client_for(viewer)
+
+    manifest_response = client.get(reverse("video-segment", kwargs={"movie_id": video.id, "resolution": "720p"}))
+    assert manifest_response.status_code == status.HTTP_200_OK
+
+    segment_response = client.get(
+        segment_url(video.id, "720p", "000.ts"),
+        HTTP_ACCEPT="video/mp2t",
+    )
+    assert segment_response.status_code == status.HTTP_200_OK
+
+
+def test_stream_denies_access_to_unpublished_of_other_user():
+    owner = create_user("owner")
+    video = create_video(owner, is_published=False)
+    stream = video.streams.create(resolution="720p", manifest="#EXTM3U\n")
+    stream.segments.create(name="000.ts", content=b"draft")
+
+    other_user = create_user("other")
+    client = auth_client_for(other_user)
+
+    manifest_response = client.get(reverse("video-segment", kwargs={"movie_id": video.id, "resolution": "720p"}))
+    manifest_payload = assert_json_error(manifest_response, status.HTTP_403_FORBIDDEN)
+    assert manifest_payload["errors"]["non_field_errors"] == ["You do not have permission to access this video."]
+
+    segment_response = client.get(
+        segment_url(video.id, "720p", "000.ts"),
+        HTTP_ACCEPT="video/mp2t",
+    )
+    segment_payload = assert_json_error(segment_response, status.HTTP_403_FORBIDDEN)
+    assert segment_payload["errors"]["non_field_errors"] == ["You do not have permission to access this video."]
+
+
+def test_stream_owner_can_access_unpublished_own_video():
+    owner = create_user("owner")
+    video = create_video(owner, is_published=False)
+    stream = video.streams.create(resolution="720p", manifest="#EXTM3U\n")
+    stream.segments.create(name="000.ts", content=b"draft")
+
+    client = auth_client_for(owner)
+
+    manifest_response = client.get(reverse("video-segment", kwargs={"movie_id": video.id, "resolution": "720p"}))
+    assert manifest_response.status_code == status.HTTP_200_OK
+
+    segment_response = client.get(
+        segment_url(video.id, "720p", "000.ts"),
+        HTTP_ACCEPT="video/mp2t",
+    )
+    assert segment_response.status_code == status.HTTP_200_OK
 
 
 def test_video_segment_returns_binary_content(

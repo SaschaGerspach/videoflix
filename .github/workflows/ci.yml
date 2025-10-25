@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      ENV: test
+      SECRET_KEY: ci-secret-123 # reicht für CI
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install deps
+        run: |
+          python -m pip install -U pip
+          pip install -r requirements.txt
+          pip install ruff isort mypy
+
+      - name: Lint
+        run: |
+          ruff check .
+          isort --check-only .
+
+      - name: Type check
+        run: |
+          mypy --ignore-missing-imports .
+
+      - name: Run tests
+        env:
+          # dein Settings-Loader erkennt pytest und lädt .env.ci automatisch
+          PYTEST_ADDOPTS: "-q --maxfail=1 --disable-warnings"
+        run: |
+          pytest

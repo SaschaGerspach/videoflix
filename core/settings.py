@@ -11,22 +11,64 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 import os
+import sys
 from pathlib import Path
+
+try:
+    from dotenv import load_dotenv  # type: ignore
+    _BASE_DIR = Path(__file__).resolve().parent.parent
+
+    IS_PYTEST = any("pytest" in arg for arg in sys.argv)
+
+    if IS_PYTEST and (_BASE_DIR / ".env.ci").exists():
+        load_dotenv(_BASE_DIR / ".env.ci")
+    elif os.environ.get("ENV", "").lower() == "prod" and (_BASE_DIR / ".env.prod").exists():
+        load_dotenv(_BASE_DIR / ".env.prod")
+    elif (_BASE_DIR / ".env.dev").exists():
+        load_dotenv(_BASE_DIR / ".env.dev")
+except Exception:
+    pass
+# --- end .env loader ---
+
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+
+def env(name: str, default: str | None = None):
+    return os.environ.get(name, default)
+
+
+def env_bool(name: str, default: bool = False) -> bool:
+    val = os.environ.get(name)
+    if val is None:
+        return default
+    return str(val).lower() in {"1", "true", "yes", "on"}
+
+
+def env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return default
 
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-!)wfvhr-l$_8k$&bv20j2-)@6c7flzv=&_=)*b(-eun=*js)7n'
+SECRET_KEY = env("SECRET_KEY", "dev-secret-please-change")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = env_bool("DEBUG", True)
+ENV = env("ENV", "dev")
+USE_SQLITE_FOR_TESTS = env_bool("USE_SQLITE_FOR_TESTS", False)
+IS_TEST_ENV = ENV.lower() == "test" or USE_SQLITE_FOR_TESTS
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [h for h in env("ALLOWED_HOSTS", "").split(",") if h] or []
+CSRF_TRUSTED_ORIGINS = [o for o in env(
+    "CSRF_TRUSTED_ORIGINS", "").split(",") if o]
+CORS_ALLOW_CREDENTIALS = env_bool("CORS_ALLOW_CREDENTIALS", True)
 
 
 # Application definition
@@ -47,12 +89,15 @@ INSTALLED_APPS = [
     'jobs',
     'playback',
     'uploads',
+    'drf_spectacular',
+    'drf_spectacular_sidecar',
 
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -83,18 +128,9 @@ WSGI_APPLICATION = 'core.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": "videoflix",
-        "USER": "videoflix",
-        "PASSWORD": "videoflix",
-        "HOST": "127.0.0.1",
-        "PORT": "5432",
-    }
-}
 
-if os.environ.get("USE_SQLITE_FOR_TESTS") == "1":
+if USE_SQLITE_FOR_TESTS:
+    # Tests / leichter Local-Run ohne PG
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
@@ -103,8 +139,55 @@ if os.environ.get("USE_SQLITE_FOR_TESTS") == "1":
     }
     EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
     PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
-    CACHES = {"default": {
-        "BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
+else:
+    # Dev/Prod aus ENV (Postgres), mit Fallback auf SQLite wenn DB_ENGINE nicht gesetzt
+    engine = env("DB_ENGINE", "postgresql")
+    if engine == "postgresql":
+        DATABASES = {
+            "default": {
+                "ENGINE": "django.db.backends.postgresql",
+                "NAME": env("DB_NAME", "videoflix"),
+                "USER": env("DB_USER", "videoflix"),
+                "PASSWORD": env("DB_PASSWORD", "videoflix"),
+                "HOST": env("DB_HOST", "127.0.0.1"),
+                "PORT": env("DB_PORT", "5432"),
+            }
+        }
+    else:
+        DATABASES = {
+            "default": {
+                "ENGINE": "django.db.backends.sqlite3",
+                "NAME": BASE_DIR / "db.sqlite3",
+            }
+        }
+
+# --- Cache Configuration ----------------------------------------------------
+REDIS_URL = env("REDIS_URL", "redis://127.0.0.1:6379/1")
+RQ_REDIS_URL = env("RQ_REDIS_URL", REDIS_URL)
+RQ_QUEUE_DEFAULT = env("RQ_QUEUE_DEFAULT", "default")
+RQ_QUEUE_TRANSCODE = env("RQ_QUEUE_TRANSCODE", "transcode")
+CACHE_TIMEOUT_SECONDS = env_int("CACHE_TIMEOUT_SECONDS", 300)
+
+if IS_TEST_ENV:
+    # Tests / lokale Mocks bleiben In-Memory
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "TIMEOUT": CACHE_TIMEOUT_SECONDS,
+        }
+    }
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django_redis.cache.RedisCache",
+            "LOCATION": REDIS_URL,
+            "OPTIONS": {
+                "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            },
+            "TIMEOUT": CACHE_TIMEOUT_SECONDS,
+            "KEY_PREFIX": "videoflix",
+        }
+    }
 
 
 # Password validation
@@ -148,22 +231,18 @@ STATIC_URL = 'static/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
-DEFAULT_FROM_EMAIL = 'no-reply@videoflix.local'
 FRONTEND_DOMAIN = 'http://localhost:3000'
 
-JWT_ACCESS_LIFETIME_SECONDS = 900
-JWT_REFRESH_LIFETIME_SECONDS = 1209600
-JWT_LEEWAY = 0
+JWT_ACCESS_LIFETIME_SECONDS = env_int("JWT_ACCESS_LIFETIME_SECONDS", 900)
+JWT_REFRESH_LIFETIME_SECONDS = env_int("JWT_REFRESH_LIFETIME_SECONDS", 1209600)
+JWT_LEEWAY = env_int("JWT_LEEWAY", 0)
 
 CSRF_COOKIE_HTTPONLY = False
-CSRF_TRUSTED_ORIGINS = ["http://localhost:3000"]
-CORS_ALLOW_CREDENTIALS = True
 
-SESSION_COOKIE_PATH = "/"
-SESSION_COOKIE_DOMAIN = None               # z.B. "videoflix.local" in prod
-SESSION_COOKIE_SAMESITE = "Lax"            # "Strict" falls gewünscht
-SESSION_COOKIE_SECURE = False              # True in Prod/HTTPS
+SESSION_COOKIE_PATH = env("SESSION_COOKIE_PATH", "/")
+SESSION_COOKIE_DOMAIN = env("SESSION_COOKIE_DOMAIN") or None
+SESSION_COOKIE_SAMESITE = env("SESSION_COOKIE_SAMESITE", "Lax")
+SESSION_COOKIE_SECURE = env_bool("SESSION_COOKIE_SECURE", ENV != "dev")
 
 ACCESS_COOKIE_NAME = "access_token"
 REFRESH_COOKIE_NAME = "refresh_token"
@@ -172,22 +251,62 @@ REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "accounts.domain.authentication.CookieJWTAuthentication",
     ],
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
+    ],
     "DEFAULT_THROTTLE_CLASSES": [
         "rest_framework.throttling.UserRateThrottle",
         "rest_framework.throttling.ScopedRateThrottle",
     ],
-    "DEFAULT_PERMISSION_CLASSES": [
-        "rest_framework.permissions.IsAuthenticated",
-    ],
-    # Optional: sanftes Throttling
     "DEFAULT_THROTTLE_RATES": {
         "user": "100/min",
         "login": "5/min",
+        "transcode": "3/min",
     },
-    "EXCEPTION_HANDLER": "rest_framework.views.exception_handler",
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,
+    # "EXCEPTION_HANDLER": "rest_framework.views.exception_handler", # Standard reicht
 }
+
+REST_FRAMEWORK.update({
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "EXCEPTION_HANDLER": "core.api.exception_handler.error_handler",  # unser Contract
+})
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "Videoflix API",
+    "DESCRIPTION": "Videostreaming API (auth, videos, HLS).",
+    "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
+    "COMPONENT_SPLIT_REQUEST": True,
+    "SCHEMA_PATH_PREFIX": r"/api",
+    "SERVE_PERMISSIONS": ["rest_framework.permissions.AllowAny"],
+    "SERVERS": [
+        {"url": "http://127.0.0.1:8000", "description": "Local Dev"},
+    ],
+    "COMPONENTS": {
+        "schemas": {
+            "ErrorResponse": {
+                "type": "object",
+                "properties": {
+                    "errors": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                        },
+                    }
+                },
+                "required": ["errors"],
+                "description": "Canonical error payload with field-specific messages.",
+            }
+        }
+    },
+}
+
+SPECTACULAR_SETTINGS.update({
+    "SECURITY": [{"cookieJwtAuth": []}],
+})
 
 
 LOGGING = {
@@ -205,5 +324,22 @@ LOGGING = {
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
-EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
-DEFAULT_FROM_EMAIL = "noreply@videoflix.local"
+# Email
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", "noreply@videoflix.local")
+
+# Auswahl nach ENV:
+if ENV == "prod" or env("EMAIL_BACKEND") == "smtp":
+    EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+    EMAIL_HOST = env("EMAIL_HOST", "smtp.example.com")
+    EMAIL_PORT = env_int("EMAIL_PORT", 587)
+    EMAIL_HOST_USER = env("EMAIL_HOST_USER", "")
+    EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", "")
+    EMAIL_USE_TLS = env_bool("EMAIL_USE_TLS", True)
+elif env("EMAIL_BACKEND") == "locmem":
+    EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
+else:
+    # Dev-Default
+    EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+
+
+SITE_ID = int(env("SITE_ID", 1))

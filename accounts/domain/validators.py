@@ -38,9 +38,9 @@ def validate_registration_payload(payload: Dict[str, Any]) -> Dict[str, str]:
 
 
 def validate_activation_params(payload: Dict[str, Any]) -> Dict[str, str]:
-    """Validate activation URL parameters."""
+    """Validate activation payload consisting of uidb64 and token."""
     payload = payload or {}
-    errors: Dict[str, list[str]] = {}
+    errors: list[str] = []
 
     raw_uidb64 = payload.get("uidb64")
     raw_token = payload.get("token")
@@ -49,12 +49,12 @@ def validate_activation_params(payload: Dict[str, Any]) -> Dict[str, str]:
     token = str(raw_token).strip() if raw_token is not None else ""
 
     if not uidb64:
-        errors["uidb64"] = ["uidb64 is required."]
+        errors.append("uidb64 is required.")
     if not token:
-        errors["token"] = ["token is required."]
+        errors.append("token is required.")
 
     if errors:
-        raise ValidationError(errors)
+        raise ValidationError({"non_field_errors": errors})
 
     return {"uidb64": uidb64, "token": token}
 

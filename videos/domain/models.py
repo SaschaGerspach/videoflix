@@ -1,13 +1,23 @@
+from django.conf import settings
 from django.db import models
 
 from .choices import VideoCategory
 
 
 class Video(models.Model):
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="videos",
+        null=True,
+        blank=True,
+    )
     title = models.CharField(max_length=255)
     description = models.TextField()
     thumbnail_url = models.URLField()
     category = models.CharField(max_length=32, choices=VideoCategory.choices)
+    is_published = models.BooleanField(default=False)
+    status = models.CharField(max_length=20, default="pending")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

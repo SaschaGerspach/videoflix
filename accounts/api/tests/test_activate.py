@@ -31,11 +31,14 @@ def test_activate_success_marks_user_active(api_client: APIClient):
     token = default_token_generator.make_token(user)
     uidb64 = _encode_uid(user.pk)
 
-    url = reverse("activate", kwargs={"uidb64": uidb64, "token": token})
-    response = api_client.get(url)
+    response = api_client.post(
+        reverse("activate"),
+        {"uidb64": uidb64, "token": token},
+        format="json",
+    )
 
     assert response.status_code == status.HTTP_200_OK
-    assert response.json() == {"message": "Account successfully activated."}
+    assert response.json() == {"message": "Account activated."}
 
     user.refresh_from_db()
     assert user.is_active is True
@@ -51,13 +54,15 @@ def test_activate_fails_with_invalid_token(api_client: APIClient):
     )
 
     uidb64 = _encode_uid(user.pk)
-    url = reverse("activate", kwargs={
-                  "uidb64": uidb64, "token": "invalid-token"})
-    response = api_client.get(url)
+    response = api_client.post(
+        reverse("activate"),
+        {"uidb64": uidb64, "token": "invalid-token"},
+        format="json",
+    )
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     errors = response.json()["errors"]
-    assert "token" in errors
+    assert "non_field_errors" in errors
 
     user.refresh_from_db()
     assert user.is_active is False
@@ -73,12 +78,15 @@ def test_activate_fails_with_invalid_uid(api_client: APIClient):
     )
 
     token = default_token_generator.make_token(user)
-    url = reverse("activate", kwargs={"uidb64": "invalid-uid", "token": token})
-    response = api_client.get(url)
+    response = api_client.post(
+        reverse("activate"),
+        {"uidb64": "invalid-uid", "token": token},
+        format="json",
+    )
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     errors = response.json()["errors"]
-    assert "uidb64" in errors
+    assert "non_field_errors" in errors
 
     user.refresh_from_db()
     assert user.is_active is False
@@ -92,10 +100,13 @@ def test_activate_fails_when_user_already_active(api_client):
     token = default_token_generator.make_token(user)
     uidb64 = _encode_uid(user.pk)
 
-    r = api_client.get(reverse("activate", kwargs={
-                       "uidb64": uidb64, "token": token}))
+    r = api_client.post(
+        reverse("activate"),
+        {"uidb64": uidb64, "token": token},
+        format="json",
+    )
     assert r.status_code == status.HTTP_400_BAD_REQUEST
-    assert "already" in str(r.json()).lower()
+    assert "non_field_errors" in r.json()["errors"]
 
 
 def test_activate_token_cannot_be_reused(api_client):
@@ -105,24 +116,26 @@ def test_activate_token_cannot_be_reused(api_client):
     token = default_token_generator.make_token(user)
     uidb64 = _encode_uid(user.pk)
 
-    # 1. klappt
-    r1 = api_client.get(
-        reverse("activate", kwargs={"uidb64": uidb64, "token": token}))
+    payload = {"uidb64": uidb64, "token": token}
+
+    r1 = api_client.post(reverse("activate"), payload, format="json")
     assert r1.status_code == status.HTTP_200_OK
 
-    # 2. schlägt fehl
-    r2 = api_client.get(
-        reverse("activate", kwargs={"uidb64": uidb64, "token": token}))
+    r2 = api_client.post(reverse("activate"), payload, format="json")
     assert r2.status_code == status.HTTP_400_BAD_REQUEST
+    assert "non_field_errors" in r2.json()["errors"]
 
 
 def test_activate_fails_when_user_not_found(api_client):
     # irgendeine hohe ID, die nicht existiert
     uidb64 = _encode_uid(999999)
-    r = api_client.get(reverse("activate", kwargs={
-                       "uidb64": uidb64, "token": "any"}))
-    assert r.status_code in (
-        status.HTTP_400_BAD_REQUEST, status.HTTP_404_NOT_FOUND)
+    r = api_client.post(
+        reverse("activate"),
+        {"uidb64": uidb64, "token": "any"},
+        format="json",
+    )
+    assert r.status_code == status.HTTP_400_BAD_REQUEST
+    assert "non_field_errors" in r.json()["errors"]
 
 
 @pytest.fixture

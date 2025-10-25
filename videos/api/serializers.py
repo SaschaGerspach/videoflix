@@ -41,3 +41,24 @@ class VideoSegmentContentRequestSerializer(serializers.Serializer):
             "invalid": "Invalid segment name. Use e.g. 000.ts."
         },
     )
+
+
+class VideoTranscodeRequestSerializer(serializers.Serializer):
+    resolutions = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_empty=True,
+    )
+
+    _ALLOWED = {"360p", "720p"}
+
+    def validate_resolutions(self, value):
+        invalid = [item for item in value if item not in self._ALLOWED]
+        if invalid:
+            raise serializers.ValidationError(f"Invalid value '{invalid[0]}'.")
+        return value
+
+    def validate(self, attrs):
+        resolutions = attrs.get("resolutions") or ["360p", "720p"]
+        attrs["resolutions"] = resolutions
+        return attrs

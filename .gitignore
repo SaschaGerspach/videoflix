@@ -42,6 +42,7 @@ env/
 venv/
 ENV/
 .venv/
+*.env/
 
 # =====================================
 # IDEs / EDITORS
@@ -103,3 +104,6 @@ docker-compose.override.yml
 *.swp
 *.tmp
 *.orig
+schema.yaml
+schema.json
+postman/

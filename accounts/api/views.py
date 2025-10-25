@@ -8,6 +8,7 @@ from rest_framework.exceptions import ParseError
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
+from rest_framework.views import APIView
 
 from accounts.api.serializers import (ActivationSerializer, LoginSerializer,
                                       LogoutSerializer,
@@ -16,14 +17,45 @@ from accounts.api.serializers import (ActivationSerializer, LoginSerializer,
                                       RegistrationSerializer,
                                       TokenRefreshSerializer,
                                       format_validation_error)
+from accounts.api.spectacular import (
+    ActivationRequestSerializer,
+    LoginRequestSerializer,
+    PasswordConfirmRequestSerializer,
+    PasswordResetRequestSerializer,
+    RegistrationRequestSerializer,
+)
 from accounts.domain.services import (AuthenticationError, activate_user,
                                       confirm_password_reset,
                                       create_inactive_user, login_user,
                                       logout_user, refresh_access_token,
                                       send_activation_email,
                                       send_password_reset_email)
+from drf_spectacular.utils import OpenApiExample, extend_schema
 
 
+ERROR_RESPONSE_REF = {"$ref": "#/components/schemas/ErrorResponse"}
+
+
+@extend_schema(
+    tags=["Auth"],
+    request=RegistrationRequestSerializer,
+    responses={
+        201: {
+            "type": "object",
+            "properties": {
+                "user": {
+                    "type": "object",
+                    "properties": {"id": {"type": "integer"}, "email": {"type": "string"}},
+                    "required": ["id", "email"],
+                },
+                "token": {"type": "string"},
+            },
+            "required": ["user", "token"],
+        },
+        400: ERROR_RESPONSE_REF,
+    },
+    auth=[],
+)
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([AllowAny])
@@ -44,6 +76,42 @@ def register(request):
     )
 
 
+@extend_schema(
+    tags=["Auth"],
+    request=LoginRequestSerializer,
+    responses={
+        200: {
+            "type": "object",
+            "properties": {
+                "detail": {"type": "string"},
+                "user": {
+                    "type": "object",
+                    "properties": {"id": {"type": "integer"}, "username": {"type": "string"}},
+                },
+            },
+        },
+        400: ERROR_RESPONSE_REF,
+        401: ERROR_RESPONSE_REF,
+        403: ERROR_RESPONSE_REF,
+    },
+    auth=[],
+    examples=[
+        OpenApiExample(
+            "LoginSuccess",
+            value={
+                "detail": "Login successful",
+                "user": {"id": 1, "username": "user"},
+            },
+            response_only=True,
+        ),
+        OpenApiExample(
+            "LoginError",
+            value={"errors": {"non_field_errors": ["Invalid credentials."]}},
+            response_only=True,
+            status_codes=["400"],
+        ),
+    ],
+)
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([AllowAny])
@@ -107,6 +175,13 @@ if hasattr(login, "cls"):
     login.cls.throttle_scope = "login"
 
 
+@extend_schema(
+    tags=["Auth"],
+    request=None,
+    responses={200: {"type": "object", "properties": {
+        "detail": {"type": "string"}}}},
+    auth=[{"cookieJwtAuth": []}],
+)
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([AllowAny])
@@ -154,6 +229,30 @@ def logout_view(request):
     return response
 
 
+@extend_schema(
+    tags=["Auth"],
+    request=None,
+    responses={
+        200: {"type": "object",
+              "properties": {"detail": {"type": "string"}, "access": {"type": "string"}}},
+        400: ERROR_RESPONSE_REF,
+        401: ERROR_RESPONSE_REF,
+    },
+    auth=[{"cookieJwtAuth": []}],
+    examples=[
+        OpenApiExample(
+            "TokenRefreshSuccess",
+            value={"detail": "Token refreshed", "access": "jwt-token"},
+            response_only=True,
+        ),
+        OpenApiExample(
+            "TokenRefreshError",
+            value={"errors": {"refresh_token": ["Refresh token cookie missing."]}},
+            response_only=True,
+            status_codes=["400"],
+        ),
+    ],
+)
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([AllowAny])
@@ -208,6 +307,23 @@ def token_refresh(request):
     return response
 
 
+@extend_schema(
+    tags=["Auth"],
+    request=PasswordResetRequestSerializer,
+    responses={
+        200: {"type": "object", "properties": {"detail": {"type": "string"}}},
+        400: ERROR_RESPONSE_REF,
+    },
+    auth=[],
+    examples=[
+        OpenApiExample(
+            "PasswordResetError",
+            value={"errors": {"email": ["Email is required."]}},
+            response_only=True,
+            status_codes=["400"],
+        ),
+    ],
+)
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([AllowAny])
@@ -233,6 +349,23 @@ def password_reset(request):
     )
 
 
+@extend_schema(
+    tags=["Auth"],
+    request=PasswordConfirmRequestSerializer,
+    responses={
+        200: {"type": "object", "properties": {"detail": {"type": "string"}}},
+        400: ERROR_RESPONSE_REF,
+    },
+    auth=[],
+    examples=[
+        OpenApiExample(
+            "PasswordConfirmError",
+            value={"errors": {"confirm_password": ["Passwords do not match."]}},
+            response_only=True,
+            status_codes=["400"],
+        ),
+    ],
+)
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([AllowAny])
@@ -264,20 +397,43 @@ def password_confirm(request, uidb64: str, token: str):
     )
 
 
-@api_view(["GET"])
-@authentication_classes([])
-@permission_classes([AllowAny])
-def activate(request, uidb64: str, token: str):
-    serializer = ActivationSerializer({"uidb64": uidb64, "token": token})
+@extend_schema(
+    tags=["Auth"],
+    request=ActivationRequestSerializer,
+    responses={
+        200: {"type": "object", "properties": {"detail": {"type": "string"}}},
+        400: ERROR_RESPONSE_REF,
+    },
+    auth=[],
+    examples=[
+        OpenApiExample(
+            "ActivationError",
+            value={"errors": {"non_field_errors": ["token is required."]}},
+            response_only=True,
+            status_codes=["400"],
+        ),
+    ],
+)
+class ActivateAccountView(APIView):
+    authentication_classes: list = []
+    permission_classes = [AllowAny]
 
-    if not serializer.is_valid():
-        return Response({"errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+    def post(self, request):
+        try:
+            data = request.data
+        except ParseError as exc:
+            return Response(
+                {"errors": {"non_field_errors": [str(exc)]}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-    data = serializer.validated_data
+        serializer = ActivationSerializer(data)
+        if not serializer.is_valid():
+            return Response({"errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
-    try:
-        activate_user(uidb64=data["uidb64"], token=data["token"])
-    except ValidationError as exc:
-        return Response({"errors": format_validation_error(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            activate_user(**serializer.validated_data)
+        except ValidationError as exc:
+            return Response({"errors": format_validation_error(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
-    return Response({"message": "Account successfully activated."}, status=status.HTTP_200_OK)
+        return Response({"message": "Account activated."}, status=status.HTTP_200_OK)

@@ -3,6 +3,8 @@ from django.urls import path
 from videos.api.views import (VideoListView, VideoSegmentContentView,
                               VideoSegmentView)
 
+from . import views
+
 urlpatterns = [
     path("", VideoListView.as_view(), name="video-list"),
     path(
@@ -15,4 +17,6 @@ urlpatterns = [
         VideoSegmentContentView.as_view(),
         name="video-segment-content",
     ),
+    path("videos/<int:video_id>/transcode/",
+         views.VideoTranscodeView.as_view(), name="video-transcode"),
 ]

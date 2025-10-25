@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from uuid import uuid4
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -13,12 +14,23 @@ pytestmark = pytest.mark.django_db
 
 
 def _create_video(**overrides: Any) -> Video:
-    defaults = {
+    base_defaults = {
         "title": "Sample Title",
         "description": "Sample Description",
         "thumbnail_url": "http://example.com/sample.jpg",
         "category": "drama",
     }
+    defaults = dict(base_defaults)
+    user_model = get_user_model()
+    if "owner" not in overrides:
+        unique_id = uuid4()
+        defaults["owner"] = user_model.objects.create_user(
+            email=f"owner-{unique_id}@example.com",
+            username=f"owner-{unique_id}@example.com",
+            password="pass",
+        )
+    if "is_published" not in overrides:
+        defaults["is_published"] = True
     defaults.update(overrides)
     return Video.objects.create(**defaults)
 
@@ -40,12 +52,21 @@ def test_video_list_returns_videos_for_authenticated_user() -> None:
         description="Movie Description",
         thumbnail_url="http://example.com/media/thumbnail/image.jpg",
         category="drama",
+        is_published=True,
     )
     _create_video(
         title="Another Movie",
         description="Another Description",
         thumbnail_url="http://example.com/media/thumbnail/image2.jpg",
         category="romance",
+        is_published=True,
+    )
+    _create_video(
+        title="Hidden Draft",
+        description="Should stay hidden",
+        thumbnail_url="http://example.com/media/thumbnail/image3.jpg",
+        category="comedy",
+        is_published=False,
     )
 
     client = _authenticated_client()

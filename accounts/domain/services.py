@@ -293,42 +293,43 @@ def _is_refresh_jti_blacklisted(jti: str) -> bool:
 
 
 def activate_user(*, uidb64: str, token: str) -> None:
-    """
-    Aktiviert den Benutzer anhand uidb64 + token.
-    Hebt bei allen Fehlern ValidationError mit dem passenden Feld an,
-    damit die View {"errors": {...}} zurückgeben kann.
-    """
+    """Activate a user using uidb64 and token."""
     user = _get_user_from_uidb64(uidb64)
 
-    # Bereits aktiv? → 400 (ValidationError)
     if user.is_active:
         raise ValidationError(
-            {"non_field_errors": ["Account already active."]})
+            {"non_field_errors": ["Account already active."]}
+        )
 
-    # Token ungültig? → 400 (ValidationError)
     if not default_token_generator.check_token(user, token):
-        raise ValidationError({"token": ["Invalid token."]})
+        raise ValidationError(
+            {"non_field_errors": ["Invalid or expired activation token."]}
+        )
 
-    # Aktivieren
     user.is_active = True
     user.save(update_fields=["is_active"])
 
 
 def _get_user_from_uidb64(uidb64: str):
     """
-    Decodiert uidb64 und lädt den User.
-    Hebt ValidationError mit Feld 'uidb64' an, wenn etwas nicht stimmt.
+    Decode uidb64 and return the corresponding user or raise ValidationError with non-field errors.
     """
     try:
         uid = force_str(urlsafe_base64_decode(uidb64))
     except Exception:
-        raise ValidationError({"uidb64": ["Invalid uid."]})
+        raise ValidationError(
+            {"non_field_errors": ["Invalid activation link."]}
+        )
 
     if not uid or not uid.isdigit():
-        raise ValidationError({"uidb64": ["Invalid uid."]})
+        raise ValidationError(
+            {"non_field_errors": ["Invalid activation link."]}
+        )
 
     User = get_user_model()
     try:
         return User.objects.get(pk=int(uid))
     except User.DoesNotExist:
-        raise ValidationError({"uidb64": ["User not found."]})
+        raise ValidationError(
+            {"non_field_errors": ["Invalid activation link."]}
+        )
