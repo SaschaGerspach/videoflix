@@ -63,11 +63,16 @@ SECRET_KEY = env("SECRET_KEY", "dev-secret-please-change")
 DEBUG = env_bool("DEBUG", True)
 ENV = env("ENV", "dev")
 USE_SQLITE_FOR_TESTS = env_bool("USE_SQLITE_FOR_TESTS", False)
-IS_TEST_ENV = ENV.lower() == "test" or USE_SQLITE_FOR_TESTS
+IS_TEST_ENV = ENV.lower() == "test" or USE_SQLITE_FOR_TESTS or IS_PYTEST
 
 ALLOWED_HOSTS = [h for h in env("ALLOWED_HOSTS", "").split(",") if h] or []
 CSRF_TRUSTED_ORIGINS = [o for o in env(
     "CSRF_TRUSTED_ORIGINS", "").split(",") if o]
+CORS_ALLOWED_ORIGINS = [
+    o for o in env(
+        "CORS_ALLOWED_ORIGINS"
+    ).split(",") if o
+]
 CORS_ALLOW_CREDENTIALS = env_bool("CORS_ALLOW_CREDENTIALS", True)
 
 
@@ -164,8 +169,12 @@ else:
 # --- Cache Configuration ----------------------------------------------------
 REDIS_URL = env("REDIS_URL", "redis://127.0.0.1:6379/1")
 RQ_REDIS_URL = env("RQ_REDIS_URL", REDIS_URL)
+# --- Transcode Retry/Backoff ------------------------------------------------
+TRANSCODE_RETRY_MAX = env_int("TRANSCODE_RETRY_MAX", 6)
+TRANSCODE_RETRY_DELAYS = [
+    int(x) for x in env("TRANSCODE_RETRY_DELAYS", "1,2,4,8,16,32").split(",") if x.strip()
+]
 RQ_QUEUE_DEFAULT = env("RQ_QUEUE_DEFAULT", "default")
-RQ_QUEUE_TRANSCODE = env("RQ_QUEUE_TRANSCODE", "transcode")
 CACHE_TIMEOUT_SECONDS = env_int("CACHE_TIMEOUT_SECONDS", 300)
 
 if IS_TEST_ENV:
@@ -262,6 +271,7 @@ REST_FRAMEWORK = {
         "user": "100/min",
         "login": "5/min",
         "transcode": "3/min",
+        "video_upload": "3/min",
     },
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,
@@ -272,6 +282,9 @@ REST_FRAMEWORK.update({
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "EXCEPTION_HANDLER": "core.api.exception_handler.error_handler",  # unser Contract
 })
+
+VIDEO_UPLOAD_MAX_BYTES = env_int(
+    "VIDEO_UPLOAD_MAX_BYTES", 2 * 1024 * 1024 * 1024)
 
 SPECTACULAR_SETTINGS = {
     "TITLE": "Videoflix API",

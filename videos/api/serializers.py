@@ -1,5 +1,6 @@
 from rest_framework import serializers
 
+from jobs.domain.services import ALLOWED_TRANSCODE_PROFILES
 from videos.domain.models import Video
 
 
@@ -50,7 +51,7 @@ class VideoTranscodeRequestSerializer(serializers.Serializer):
         allow_empty=True,
     )
 
-    _ALLOWED = {"360p", "720p"}
+    _ALLOWED = tuple(ALLOWED_TRANSCODE_PROFILES.keys())
 
     def validate_resolutions(self, value):
         invalid = [item for item in value if item not in self._ALLOWED]
@@ -59,6 +60,19 @@ class VideoTranscodeRequestSerializer(serializers.Serializer):
         return value
 
     def validate(self, attrs):
-        resolutions = attrs.get("resolutions") or ["360p", "720p"]
+        resolutions = attrs.get("resolutions") or list(self._ALLOWED)
         attrs["resolutions"] = resolutions
         return attrs
+
+
+class VideoUploadSerializer(serializers.Serializer):
+    file = serializers.FileField(write_only=True)
+
+    def validate_file(self, file):
+        content_type = getattr(file, "content_type", "")
+        name = getattr(file, "name", "")
+        if content_type and content_type.lower() not in {"video/mp4", "application/octet-stream"}:
+            raise serializers.ValidationError("Only MP4 uploads are supported.")
+        if not name.lower().endswith(".mp4"):
+            raise serializers.ValidationError("Filename must end with .mp4.")
+        return file

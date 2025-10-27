@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
@@ -9,16 +10,57 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 
-from videos.domain import hls as hls_utils
-
 logger = logging.getLogger("videoflix")
 
 TRANSCODE_LOCK_TTL_SECONDS = 15 * 60
 FAILED_STATUS_TTL_SECONDS = 10 * 60
+PENDING_TTL_SECONDS = 10 * 60  # 10 minutes
+
+
+@dataclass(frozen=True)
+class TranscodeProfile:
+    width: int
+    height: int
+    bandwidth: int
+    scale: str | None = None
+    video_bitrate: str | None = None
+    maxrate: str | None = None
+    bufsize: str | None = None
+    audio_bitrate: str = "128k"
+    audio_channels: int = 2
+    audio_rate: int = 48000
+
+
+TRANSCODE_PROFILE_CONFIG: dict[str, TranscodeProfile] = {
+    "360p": TranscodeProfile(
+        width=640,
+        height=360,
+        bandwidth=800_000,
+    ),
+    "480p": TranscodeProfile(
+        width=854,
+        height=480,
+        bandwidth=2_100_000,
+        scale="scale=-2:480",
+        video_bitrate="1500k",
+        maxrate="2100k",
+        bufsize="3000k",
+    ),
+    "720p": TranscodeProfile(
+        width=1280,
+        height=720,
+        bandwidth=4_000_000,
+    ),
+    "1080p": TranscodeProfile(
+        width=1920,
+        height=1080,
+        bandwidth=8_000_000,
+    ),
+}
+
 ALLOWED_TRANSCODE_PROFILES: dict[str, tuple[int, int]] = {
-    "360p": (640, 360),
-    "720p": (1280, 720),
-    "1080p": (1920, 1080),
+    resolution: (profile.width, profile.height)
+    for resolution, profile in TRANSCODE_PROFILE_CONFIG.items()
 }
 
 
@@ -90,7 +132,10 @@ def _source_has_audio_stream(source: Path) -> bool | None:
         return None
     except subprocess.CalledProcessError:
         return False
-    return bool(result.stdout.strip())
+    stdout = getattr(result, "stdout", b"")
+    if not stdout:
+        return False
+    return bool(stdout.strip())
 
 
 def mark_transcode_processing(video_id: int) -> None:
@@ -171,21 +216,61 @@ def enqueue_transcode(video_id: int, *, target_resolutions: Iterable[str] | None
         return run_transcode_job(video_id, resolutions)
 
     env = getattr(settings, "ENV", "").lower()
+    pending_key = transcode_pending_key(video_id)
+
+    if cache.get(pending_key) and not is_transcode_locked(video_id):
+        try:
+            should_inspect_queue = not getattr(settings, "IS_TEST_ENV", False)
+            if should_inspect_queue and not _has_active_transcode_job(video_id):
+                cache.delete(pending_key)
+                logger.info(
+                    "Cleared stale transcode pending flag: video_id=%s", video_id
+                )
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.debug(
+                "Pending sanity check failed: video_id=%s, error=%s", video_id, exc
+            )
+
+    if cache.get(pending_key) or is_transcode_locked(video_id):
+        raise TranscodeError("Transcode already in progress.", status_code=409)
 
     if env in {"dev", "prod"}:
         from jobs.queue import enqueue_transcode_job
 
-        result = enqueue_transcode_job(video_id, resolutions)
+        try:
+            enqueue_result = enqueue_transcode_job(video_id, resolutions)
+        except TranscodeError:
+            raise
+        except ValidationError:
+            raise
+        except Exception as exc:  # pragma: no cover - defensive logging handled upstream
+            logger.warning(
+                "Transcode enqueue failed, falling back to inline execution: video_id=%s, error=%s",
+                video_id,
+                exc,
+            )
+            return run_transcode_job(video_id, resolutions)
+
+        if isinstance(enqueue_result, dict) and enqueue_result.get("job_id"):
+            cache.set(pending_key, True, timeout=PENDING_TTL_SECONDS)
+        else:  # pragma: no cover - should not happen but keep defensive
+            logger.debug(
+                "Enqueue result missing job_id; pending lock not set: video_id=%s, result=%s",
+                video_id,
+                enqueue_result,
+            )
+
         logger.info(
             "Transcode enqueued: video_id=%s, profiles=%s", video_id, resolutions
         )
-        return result
+        return enqueue_result
 
     return run_transcode_job(video_id, resolutions)
 
 
 def _run_ffmpeg_for_profile(video_id: int, source: Path, resolution: str) -> None:
-    width, height = ALLOWED_TRANSCODE_PROFILES[resolution]
+    profile = TRANSCODE_PROFILE_CONFIG[resolution]
+    width, height = profile.width, profile.height
     output_dir = get_transcode_output_dir(video_id, resolution)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -201,12 +286,13 @@ def _run_ffmpeg_for_profile(video_id: int, source: Path, resolution: str) -> Non
         return
 
     has_audio = _source_has_audio_stream(source)
+    scale_filter = profile.scale or f"scale={width}:{height}"
 
     cmd = [
         "ffmpeg",
         "-y",
         "-i", str(source),
-        "-vf", f"scale={width}:{height}",
+        "-vf", scale_filter,
         "-c:v", "h264",
         "-profile:v", "main",
         "-level", "3.1",
@@ -216,6 +302,12 @@ def _run_ffmpeg_for_profile(video_id: int, source: Path, resolution: str) -> Non
         "-sc_threshold", "0",
         "-map", "0:v:0",
     ]
+    if profile.video_bitrate:
+        cmd.extend(["-b:v", profile.video_bitrate])
+    if profile.maxrate:
+        cmd.extend(["-maxrate", profile.maxrate])
+    if profile.bufsize:
+        cmd.extend(["-bufsize", profile.bufsize])
     if has_audio:
         cmd.extend(
             [
@@ -224,9 +316,11 @@ def _run_ffmpeg_for_profile(video_id: int, source: Path, resolution: str) -> Non
                 "-c:a",
                 "aac",
                 "-b:a",
-                "128k",
+                profile.audio_bitrate,
+                "-ar",
+                str(profile.audio_rate),
                 "-ac",
-                "2",
+                str(profile.audio_channels),
             ]
         )
     elif has_audio is None:
@@ -259,6 +353,88 @@ def manifest_exists_for_resolution(video_id: int, resolution: str) -> bool:
     return manifest_path_for(video_id, resolution).exists()
 
 
+def _has_active_transcode_job(video_id: int) -> bool:
+    """
+    Return True when an RQ job for the given video_id is still queued/started/deferred.
+    Falls back to True (keep lock) when inspection fails so we do not clear pending eagerly.
+    """
+    try:
+        from rq import Queue
+        from rq.exceptions import NoSuchJobError  # type: ignore
+        from rq.job import Job  # type: ignore
+
+        from jobs.queue import get_rq_connection
+    except Exception as exc:  # pragma: no cover - RQ may be unavailable
+        logger.debug(
+            "RQ inspection unavailable; keeping pending lock: video_id=%s, error=%s",
+            video_id,
+            exc,
+        )
+        return True
+
+    try:
+        queue = Queue(settings.RQ_QUEUE_TRANSCODE, connection=get_rq_connection())
+    except Exception as exc:  # pragma: no cover - Redis misconfigured/unavailable
+        logger.debug(
+            "Redis connection failed during pending sanity check: video_id=%s, error=%s",
+            video_id,
+            exc,
+        )
+        return True
+
+    job_ids: set[str] = set()
+    try:
+        job_ids.update(queue.job_ids)
+    except Exception as exc:  # pragma: no cover - defensive logging only
+        logger.debug("Unable to collect queued job IDs: video_id=%s, error=%s", video_id, exc)
+
+    registry_sources = [
+        getattr(queue, "started_job_registry", None),
+        getattr(queue, "deferred_job_registry", None),
+        getattr(queue, "scheduled_job_registry", None),
+    ]
+    for registry in registry_sources:
+        if registry is None:
+            continue
+        try:
+            job_ids.update(registry.get_job_ids())
+        except Exception as exc:  # pragma: no cover - best effort
+            logger.debug(
+                "Unable to collect registry job IDs: video_id=%s, registry=%s, error=%s",
+                video_id,
+                getattr(registry, "name", type(registry).__name__),
+                exc,
+            )
+
+    for job_id in job_ids:
+        try:
+            job = Job.fetch(job_id, connection=queue.connection)
+        except NoSuchJobError:
+            continue
+        except Exception as exc:  # pragma: no cover - keep lock
+            logger.debug(
+                "Job fetch failed during pending sanity check: video_id=%s, job_id=%s, error=%s",
+                video_id,
+                job_id,
+                exc,
+            )
+            continue
+
+        candidate = job.meta.get("video_id")
+        if candidate is None and job.args:
+            candidate = job.args[0]
+
+        if candidate is None:
+            continue
+
+        try:
+            if int(candidate) == int(video_id):
+                return True
+        except (TypeError, ValueError):
+            if str(candidate) == str(video_id):
+                return True
+
+    return False
 
 
 def _manifest_exists(video_id: int) -> bool:
@@ -308,6 +484,9 @@ def run_transcode_job(video_id: int, resolutions: Iterable[str]) -> dict | None:
 
         for resolution in resolutions:
             _run_ffmpeg_for_profile(video_id, source_path, resolution)
+
+        from videos.domain import hls as hls_utils
+
         hls_utils.write_master_playlist(video_id)
         mark_transcode_ready(video_id)
         logger.info(

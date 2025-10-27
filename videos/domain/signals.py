@@ -3,8 +3,6 @@ from __future__ import annotations
 import logging
 from typing import Iterable
 
-from django.conf import settings
-
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
@@ -36,10 +34,6 @@ def enqueue_missing_transcodes(
         return
 
     video_id = instance.pk
-    env = str(getattr(settings, "ENV", "")).lower()
-    if env == "test":
-        logger.debug("Auto-transcode skipped (ENV=test): video_id=%s", video_id)
-        return
     source_path = transcode_services.get_video_source_path(video_id)
     if not source_path.exists():
         logger.debug(
@@ -51,7 +45,7 @@ def enqueue_missing_transcodes(
 
     missing_resolutions = _missing_renditions(video_id)
     if not missing_resolutions:
-        logger.debug(
+        logger.info(
             "Auto-transcode skipped (no missing renditions): video_id=%s",
             video_id,
         )
@@ -65,9 +59,7 @@ def enqueue_missing_transcodes(
         return
 
     try:
-        from jobs.queue import enqueue_transcode_job
-
-        enqueue_transcode_job(video_id, missing_resolutions)
+        transcode_services.enqueue_transcode(video_id, target_resolutions=missing_resolutions)
         logger.info(
             "Auto-transcode queued: video_id=%s, resolutions=%s",
             video_id,

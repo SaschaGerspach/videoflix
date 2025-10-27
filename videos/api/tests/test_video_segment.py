@@ -4,6 +4,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from jobs.domain import services as transcode_services
 from videos.domain.models import Video, VideoStream
 
 pytestmark = pytest.mark.django_db
@@ -246,6 +247,41 @@ def test_segment_playlist_honours_m3u8_accept_header(
     )
 
     assert_m3u8_success(response, manifest)
+
+
+def test_segment_480p_filesystem_manifest_and_segment(
+    authenticated_client: APIClient,
+    video: Video,
+    stream_factory,
+    tmp_path,
+    settings,
+) -> None:
+    media_root = tmp_path / "media"
+    media_root.mkdir(parents=True, exist_ok=True)
+    settings.MEDIA_ROOT = str(media_root)
+
+    manifest = "#EXTM3U\n#EXT-X-VERSION:3\n"
+    stream = stream_factory(video, "480p", manifest)
+
+    output_dir = transcode_services.get_transcode_output_dir(video.id, "480p")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "index.m3u8").write_text(manifest, encoding="utf-8")
+
+    segment_name = "000.ts"
+    segment_bytes = b"segment-bytes"
+    (output_dir / segment_name).write_bytes(segment_bytes)
+    stream.segments.create(name=segment_name, content=b"")
+
+    manifest_response = authenticated_client.get(segment_url(video.id, "480p"))
+    assert_m3u8_success(manifest_response, manifest)
+
+    segment_response = authenticated_client.get(
+        segment_content_url(video.id, "480p", segment_name)
+    )
+
+    assert segment_response.status_code == status.HTTP_200_OK
+    assert segment_response["Content-Type"].lower().startswith("video/mp2t")
+    assert segment_response.content == segment_bytes
 
 
 def test_segment_playlist_rejects_resolution_without_suffix(

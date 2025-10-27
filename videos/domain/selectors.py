@@ -45,52 +45,78 @@ def _video_visible_to_user(video: Video, user) -> bool:
 def get_video_stream(*, movie_id: int, resolution: str, user) -> StreamResult:
     """Return a single video stream manifest for the given video and resolution."""
     try:
-        video = Video.objects.get(pk=movie_id)
-    except Video.DoesNotExist as exc:  # pragma: no cover - defensive
-        raise VideoStream.DoesNotExist from exc
+        stream = VideoStream.objects.select_related("video").get(
+            video_id=movie_id,
+            resolution=resolution,
+        )
+    except VideoStream.DoesNotExist:
+        raise
 
+    video = stream.video
     if not _video_visible_to_user(video, user):
         raise PermissionError(_FORBIDDEN_ERROR)
 
     output_dir = transcode_services.get_transcode_output_dir(movie_id, resolution)
     manifest_path = output_dir / "index.m3u8"
-    if not manifest_path.exists():
-        if settings.DEBUG:
-            logger.debug(
-                "Stream manifest missing: video_id=%s, resolution=%s, path=%s",
-                movie_id,
-                resolution,
-                str(manifest_path.resolve()),
-            )
-        raise VideoStream.DoesNotExist
+    if manifest_path.exists():
+        manifest_content = manifest_path.read_text(encoding="utf-8")
+        return StreamResult(video=video, manifest=manifest_content)
 
-    manifest_bytes = manifest_path.read_bytes()
-    manifest_content = manifest_bytes.decode("utf-8")
-    return StreamResult(video=video, manifest=manifest_content)
+    if stream.manifest:
+        logger.debug(
+            "Stream manifest served from database: video_id=%s, resolution=%s",
+            movie_id,
+            resolution,
+        )
+        return StreamResult(video=video, manifest=stream.manifest)
+
+    if settings.DEBUG:
+        logger.debug(
+            "Stream manifest missing: video_id=%s, resolution=%s, path=%s",
+            movie_id,
+            resolution,
+            str(manifest_path),
+        )
+    raise VideoStream.DoesNotExist
 
 
 def get_video_segment(*, movie_id: int, resolution: str, segment: str, user) -> SegmentResult:
     """Return video segment binary content for the given video stream."""
     try:
-        video = Video.objects.get(pk=movie_id)
-    except Video.DoesNotExist as exc:  # pragma: no cover - defensive
-        raise VideoSegment.DoesNotExist from exc
+        video_segment = VideoSegment.objects.select_related("stream", "stream__video").get(
+            stream__video_id=movie_id,
+            stream__resolution=resolution,
+            name=segment,
+        )
+    except VideoSegment.DoesNotExist:
+        raise
 
+    video = video_segment.stream.video
     if not _video_visible_to_user(video, user):
         raise PermissionError(_FORBIDDEN_ERROR)
 
     output_dir = transcode_services.get_transcode_output_dir(movie_id, resolution)
     segment_filename = segment if segment.endswith(".ts") else f"{segment}.ts"
     segment_path = output_dir / segment_filename
-    if not segment_path.exists():
-        if settings.DEBUG:
-            logger.debug(
-                "Stream segment missing: video_id=%s, resolution=%s, segment=%s, path=%s",
-                movie_id,
-                resolution,
-                segment_filename,
-                str(segment_path.resolve()),
-            )
-        raise VideoSegment.DoesNotExist
-    segment_content = segment_path.read_bytes()
-    return SegmentResult(content=segment_content)
+    if segment_path.exists():
+        segment_content = segment_path.read_bytes()
+        return SegmentResult(content=segment_content)
+
+    if video_segment.content:
+        logger.debug(
+            "Stream segment served from database: video_id=%s, resolution=%s, segment=%s",
+            movie_id,
+            resolution,
+            segment_filename,
+        )
+        return SegmentResult(content=bytes(video_segment.content))
+
+    if settings.DEBUG:
+        logger.debug(
+            "Stream segment missing: video_id=%s, resolution=%s, segment=%s, path=%s",
+            movie_id,
+            resolution,
+            segment_filename,
+            str(segment_path),
+        )
+    raise VideoSegment.DoesNotExist

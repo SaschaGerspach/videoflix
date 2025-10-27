@@ -29,3 +29,4 @@
 
 - **Alternative:** `python -m rq worker transcode default --url %RQ_REDIS_URL%`
 - **API:** Trigger transcoding via the existing `POST /api/videos/<id>/transcode/` endpoint; status can be inspected via the admin or by querying the cache.
+\n- Transcode-Worker: Retry/Backoff (6 Versuche, 1ñ32s, keine Delays in Tests), permanente Fehler (4xx auﬂer 429) ohne Retry.
