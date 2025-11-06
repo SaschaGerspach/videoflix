@@ -1,0 +1,209 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Iterable, List, Sequence
+
+from django.conf import settings
+from django.core.management.base import BaseCommand, CommandError
+
+from jobs.domain import services as job_services
+from videos.domain.models import Video
+from videos.domain.selectors import resolve_public_id
+from videos.domain.utils import is_stub_manifest, resolve_source_path
+
+
+def _flatten(values: Sequence[Sequence[int]] | None) -> list[int]:
+    result: list[int] = []
+    if not values:
+        return result
+    for group in values:
+        result.extend(group)
+    return result
+
+
+def _unique(items: Iterable[int]) -> list[int]:
+    seen: set[int] = set()
+    ordered: list[int] = []
+    for item in items:
+        if item in seen:
+            continue
+        seen.add(item)
+        ordered.append(item)
+    return ordered
+
+
+class Command(BaseCommand):
+    help = "Enqueue HLS transcode jobs for the specified videos."
+
+    def add_arguments(self, parser):
+        parser.add_argument(
+            "--public",
+            action="append",
+            nargs="+",
+            type=int,
+            dest="public_ids",
+            help="Frontend public IDs (ordinal numbers) to resolve and enqueue.",
+        )
+        parser.add_argument(
+            "--real",
+            action="append",
+            nargs="+",
+            type=int,
+            dest="real_ids",
+            help="Real video primary keys to enqueue directly.",
+        )
+        parser.add_argument(
+            "--res",
+            default="480p",
+            choices=["480p", "720p", "1080p"],
+            help="Target resolution to enqueue (default: 480p).",
+        )
+        parser.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="Display the actions without enqueuing any jobs.",
+        )
+        parser.add_argument(
+            "--force",
+            action="store_true",
+            help="Rebuild renditions even when an existing manifest is present.",
+        )
+
+    def handle(self, *args, **options):
+        public_inputs = _flatten(options.get("public_ids"))
+        real_inputs = _flatten(options.get("real_ids"))
+        resolution: str = options["res"]
+        dry_run: bool = options["dry_run"]
+        force: bool = options["force"]
+
+        if not public_inputs and not real_inputs:
+            raise CommandError("Provide at least one --public or --real identifier.")
+
+        public_mappings: List[tuple[int, int]] = []
+        resolved_real_ids: list[int] = []
+
+        for public_id in public_inputs:
+            try:
+                real_id = resolve_public_id(public_id)
+            except Video.DoesNotExist as exc:
+                raise CommandError(f"Public id {public_id} does not map to a video.") from exc
+            public_mappings.append((public_id, real_id))
+            resolved_real_ids.append(real_id)
+
+        if real_inputs:
+            existing_ids = set(
+                Video.objects.filter(pk__in=set(real_inputs)).values_list("pk", flat=True)
+            )
+            missing = [real_id for real_id in real_inputs if real_id not in existing_ids]
+            if missing:
+                missing_str = ", ".join(str(mid) for mid in missing)
+                raise CommandError(f"Video(s) not found for real id(s): {missing_str}")
+
+        target_real_ids = _unique(resolved_real_ids + real_inputs)
+
+        if not target_real_ids:
+            self.stdout.write("No videos to process.")
+            return
+
+        videos = {video.pk: video for video in Video.objects.filter(pk__in=target_real_ids)}
+        missing_videos = [vid for vid in target_real_ids if vid not in videos]
+        if missing_videos:
+            raise CommandError(
+                f"Video(s) not found for real id(s): {', '.join(str(v) for v in missing_videos)}"
+            )
+
+        action_prefix = "DRY-RUN: would queue" if dry_run else "Queued"
+
+        if dry_run:
+            for real_id in target_real_ids:
+                manifest_path = self._manifest_path(real_id, resolution)
+                if manifest_path.exists():
+                    status = "stub" if is_stub_manifest(manifest_path) else "existing"
+                else:
+                    status = "missing"
+                self.stdout.write(f"{action_prefix} {resolution} for {real_id} ({status})")
+            if public_mappings:
+                public_part = ", ".join(str(pub) for pub, _ in public_mappings)
+                real_part = ", ".join(str(real) for _, real in public_mappings)
+                self.stdout.write(f"Mapping: {public_part} (public) -> {real_part} (real)")
+            if real_inputs:
+                explicit = ", ".join(str(rid) for rid in _unique(real_inputs))
+                self.stdout.write(f"Explicit real ids: {explicit}")
+            return
+
+        enqueued: list[int] = []
+        skipped: list[int] = []
+        failures: list[str] = []
+
+        for real_id in target_real_ids:
+            manifest_path = self._manifest_path(real_id, resolution)
+            rendition_dir = manifest_path.parent
+            manifest_exists = manifest_path.exists()
+            stub_manifest = manifest_exists and is_stub_manifest(manifest_path)
+
+            if manifest_exists and not stub_manifest and not force:
+                skipped.append(real_id)
+                continue
+
+            video = videos[real_id]
+            checked_paths: list[Path] = []
+            source_path = resolve_source_path(video, checked_paths=checked_paths)
+            if not source_path:
+                checked_text = ", ".join(str(path) for path in checked_paths) or "none"
+                failures.append(
+                    f"Video {real_id}: no source found. Checked: {checked_text}"
+                )
+                continue
+
+            if force and manifest_exists and not stub_manifest:
+                self._purge_rendition_dir(rendition_dir)
+            elif stub_manifest:
+                self._purge_rendition_dir(rendition_dir)
+
+            try:
+                job_services.enqueue_transcode(real_id, target_resolutions=[resolution])
+            except Exception as exc:
+                failures.append(f"Video {real_id}: {exc}")
+            else:
+                enqueued.append(real_id)
+
+        if failures:
+            for message in failures:
+                self.stderr.write(message)
+            raise CommandError(f"Could not enqueue {len(failures)} job(s).")
+
+        if enqueued:
+            self.stdout.write(
+                f"{action_prefix} {resolution} for real ids: {', '.join(str(rid) for rid in enqueued)}"
+            )
+        if skipped:
+            self.stdout.write(
+                f"Skipped existing renditions: {', '.join(str(rid) for rid in skipped)}"
+            )
+        if public_mappings:
+            public_part = ", ".join(str(pub) for pub, _ in public_mappings)
+            real_part = ", ".join(str(real) for _, real in public_mappings)
+            self.stdout.write(
+                f"{action_prefix} {resolution} for: {public_part} (public) -> {real_part} (real)"
+            )
+        if real_inputs:
+            explicit = ", ".join(str(rid) for rid in _unique(real_inputs))
+            self.stdout.write(f"{action_prefix} {resolution} for explicit real ids: {explicit}")
+
+    def _manifest_path(self, real_id: int, resolution: str) -> Path:
+        return Path(settings.MEDIA_ROOT) / "hls" / str(real_id) / resolution / "index.m3u8"
+
+    def _purge_rendition_dir(self, rendition_dir: Path) -> None:
+        if not rendition_dir.exists():
+            return
+        manifest_path = rendition_dir / "index.m3u8"
+        try:
+            if manifest_path.exists():
+                manifest_path.unlink()
+        except OSError:
+            pass
+        for segment in rendition_dir.glob("*.ts"):
+            try:
+                segment.unlink()
+            except OSError:
+                continue

@@ -17,10 +17,12 @@ Including another URLconf
 from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
+from django.http import JsonResponse
 from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
 
 urlpatterns = [
+    path('healthz/', lambda request: JsonResponse({'ok': True})),
     path('admin/', admin.site.urls),
     path('api/', include('accounts.api.urls')),
     path('api/', include('videos.api.urls')),
@@ -29,3 +31,6 @@ urlpatterns = [
          name="swagger-ui"),
     path("api/redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+
+if settings.DEBUG:
+    urlpatterns.append(path("admin/rq/", include("django_rq.urls")))

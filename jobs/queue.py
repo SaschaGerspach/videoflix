@@ -1,39 +1,63 @@
 from __future__ import annotations
 
-from functools import lru_cache
-from typing import Any
+from __future__ import annotations
 
-import redis
+from typing import Any, Iterable, Sequence
+
 from django.conf import settings
-from rq import Queue, Retry
+from rq import Retry
 
 
-@lru_cache(maxsize=1)
-def get_rq_connection() -> redis.Redis:
-    """Return a shared Redis connection for RQ usage."""
-    return redis.from_url(settings.RQ_REDIS_URL)
+def get_transcode_queue():
+    """
+    Return the configured django-rq queue for transcodes or ``None`` when unavailable.
+    """
+    queue_name = (getattr(settings, "RQ_QUEUE_TRANSCODE", "") or "").strip()
+    if not queue_name:
+        return None
+
+    queues = getattr(settings, "RQ_QUEUES", {}) or {}
+    if queue_name not in queues:
+        return None
+
+    try:  # Import lazily so tests can run without django-rq installed
+        import django_rq  # type: ignore
+    except Exception:
+        return None
+
+    try:
+        return django_rq.get_queue(queue_name)
+    except Exception:
+        return None
 
 
-def enqueue_transcode_job(video_id: int, resolutions: list[str] | None = None) -> dict[str, Any]:
-    """Enqueue a transcode job in the configured RQ queue."""
-    queue = Queue(
-        settings.RQ_QUEUE_TRANSCODE,
-        connection=get_rq_connection(),
-    )
-    job = queue.enqueue(
+def enqueue_transcode_job(
+    video_id: int,
+    resolutions: Iterable[str] | None = None,
+    *,
+    queue=None,
+    force: bool = False,
+) -> dict[str, Any]:
+    """
+    Enqueue the asynchronous transcode job on the configured queue.
+
+    Raises ``RuntimeError`` when the queue is unavailable so callers can fall back.
+    """
+    queue_obj = queue or get_transcode_queue()
+    if queue_obj is None:
+        raise RuntimeError("Transcode queue is not available.")
+
+    payload: Sequence[str] = list(resolutions or [])
+    job = queue_obj.enqueue(
         "jobs.tasks.transcode_video_job",
-        args=(video_id, resolutions),
-        job_timeout="15m",
-        result_ttl=600,
-        ttl=600,
+        args=(video_id, list(payload) or None),
+        kwargs={"force": force},
+        job_timeout=60 * 20,
+        result_ttl=86400,
         failure_ttl=3600,
         retry=Retry(max=4, interval=[5, 15, 45, 120]),
     )
     job.meta["video_id"] = video_id
-    job.meta["resolutions"] = list(resolutions or [])
+    job.meta["resolutions"] = list(payload)
     job.save_meta()
-    return {"accepted": True, "job_id": job.id, "queue": settings.RQ_QUEUE_TRANSCODE}
-
-
-# Änderungen:
-# - Pending-Locks werden jetzt außerhalb gesetzt; diese Funktion enqueued nur noch und speichert Kontext in den Job-Metadaten.
+    return {"accepted": True, "job_id": getattr(job, "id", None), "queue": queue_obj.name}

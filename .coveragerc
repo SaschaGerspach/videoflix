@@ -1,0 +1,18 @@
+[run]
+branch = True
+omit =
+    core/asgi.py
+    core/wsgi.py
+    jobs/management/commands/run_rq_worker.py
+    videos/admin.py
+    core/settings.py
+    jobs/domain/services.py
+    jobs/tasks.py
+    core/api/spectacular_ext.py
+    core/urls.py
+    videos/api/urls.py
+
+[report]
+show_missing = True
+skip_covered = False
+fail_under = 92

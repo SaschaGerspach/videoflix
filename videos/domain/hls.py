@@ -30,6 +30,21 @@ def resolution_to_dims(resolution: str) -> str:
     return f"{width}x{height}"
 
 
+def get_available_resolutions(video_id: int) -> list[str]:
+    """
+    Return a list of available renditions for the given video.
+    """
+    available: list[str] = []
+    for resolution in ALLOWED_TRANSCODE_PROFILES.keys():
+        manifest_path = rendition_dir(video_id, resolution) / "index.m3u8"
+        try:
+            if manifest_path.exists():
+                available.append(resolution)
+        except OSError:
+            continue
+    return available
+
+
 def write_master_playlist(video_id: int) -> None:
     """Generate master playlist referencing existing renditions.
 

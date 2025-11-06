@@ -2,6 +2,7 @@ import pytest
 from django.core.cache import cache
 
 from jobs.domain import services
+from videos.domain.models import Video
 
 pytestmark = pytest.mark.django_db
 
@@ -12,6 +13,8 @@ def media_root(tmp_path, settings):
     root.mkdir(parents=True, exist_ok=True)
     settings.MEDIA_ROOT = root
     settings.ENV = "dev"
+    settings.RQ_QUEUE_TRANSCODE = ""
+    settings.RQ_QUEUES = {}
     yield root
 
 
@@ -22,7 +25,22 @@ def clear_cache():
     cache.clear()
 
 
+def _ensure_video_record(video_id: int) -> Video:
+    video, _ = Video.objects.update_or_create(
+        id=video_id,
+        defaults={
+            "title": f"Transcode {video_id}",
+            "description": "Test video generated for transcode suite.",
+            "thumbnail_url": "http://example.com/thumb.jpg",
+            "category": "drama",
+            "is_published": True,
+        },
+    )
+    return video
+
+
 def _create_source_file(video_id: int) -> None:
+    _ensure_video_record(video_id)
     source_path = services.get_video_source_path(video_id)
     source_path.parent.mkdir(parents=True, exist_ok=True)
     source_path.write_bytes(b"dummy video content")
@@ -30,6 +48,7 @@ def _create_source_file(video_id: int) -> None:
 
 def test_enqueue_transcode_returns_ok(settings):
     settings.ENV = "test"
+    _ensure_video_record(42)
     res = services.enqueue_transcode(42, target_resolutions=["720p"])
     assert res["ok"] is True
     assert "Transcode triggered" in res["message"]
@@ -62,6 +81,7 @@ def test_status_processing_then_ready_on_success(monkeypatch):
 
 def test_status_failed_on_missing_source():
     video_id = 101
+    _ensure_video_record(video_id)
 
     with pytest.raises(services.TranscodeError) as exc:
         services.enqueue_transcode(video_id, target_resolutions=["360p"])
@@ -118,7 +138,12 @@ def test_lock_idempotency():
 def test_enqueue_transcode_clears_stale_pending(monkeypatch, settings):
     settings.IS_TEST_ENV = False
     settings.ENV = "dev"
+    settings.RQ_QUEUE_TRANSCODE = "transcode"
+    settings.RQ_QUEUES = {
+        "transcode": {"URL": "redis://127.0.0.1:6379/0", "DEFAULT_TIMEOUT": 60 * 20}
+    }
     video_id = 515
+    _ensure_video_record(video_id)
     pending_key = services.transcode_pending_key(video_id)
     cache.set(pending_key, True, timeout=30)
 
@@ -126,11 +151,26 @@ def test_enqueue_transcode_clears_stale_pending(monkeypatch, settings):
 
     captured = {}
 
-    def fake_enqueue(video_id_arg, resolutions):
-        captured["args"] = (video_id_arg, tuple(resolutions))
-        return {"accepted": True, "job_id": "rq-job-1", "queue": "transcode"}
+    class DummyQueue:
+        name = "transcode"
 
-    monkeypatch.setattr("jobs.queue.enqueue_transcode_job", fake_enqueue)
+        def __init__(self):
+            self.calls = []
+
+        def enqueue(self, *args, **kwargs):
+            self.calls.append((args, kwargs))
+            job = type("Job", (), {"id": "rq-job-1", "meta": {}, "save_meta": lambda self: None})()
+            return job
+
+    dummy_queue = DummyQueue()
+
+    def fake_enqueue(video_id_arg, resolutions, *, queue=None, force=False):
+        assert queue is dummy_queue
+        captured["args"] = (video_id_arg, tuple(resolutions))
+        return {"accepted": True, "job_id": "rq-job-1", "queue": dummy_queue.name}
+
+    monkeypatch.setattr(services.transcode_queue, "get_transcode_queue", lambda: dummy_queue)
+    monkeypatch.setattr(services.transcode_queue, "enqueue_transcode_job", fake_enqueue)
 
     result = services.enqueue_transcode(video_id, target_resolutions=["360p"])
 
@@ -143,7 +183,12 @@ def test_enqueue_transcode_clears_stale_pending(monkeypatch, settings):
 def test_enqueue_transcode_sets_pending_ttl(monkeypatch, settings):
     settings.IS_TEST_ENV = False
     settings.ENV = "dev"
+    settings.RQ_QUEUE_TRANSCODE = "transcode"
+    settings.RQ_QUEUES = {
+        "transcode": {"URL": "redis://127.0.0.1:6379/0", "DEFAULT_TIMEOUT": 60 * 20}
+    }
     video_id = 616
+    _ensure_video_record(video_id)
     pending_key = services.transcode_pending_key(video_id)
 
     orig_set = cache.set
@@ -156,11 +201,29 @@ def test_enqueue_transcode_sets_pending_ttl(monkeypatch, settings):
 
     monkeypatch.setattr(services.cache, "set", fake_set)
 
-    def fake_enqueue(video_id_arg, resolutions):
-        return {"accepted": True, "job_id": "rq-job-2", "queue": "transcode"}
+    class DummyQueue:
+        name = "transcode"
 
-    monkeypatch.setattr("jobs.queue.enqueue_transcode_job", fake_enqueue)
+        def enqueue(self, *args, **kwargs):
+            return type("Job", (), {"id": "rq-job-2", "meta": {}, "save_meta": lambda self: None})()
+
+    dummy_queue = DummyQueue()
+
+    monkeypatch.setattr(services.transcode_queue, "get_transcode_queue", lambda: dummy_queue)
+    monkeypatch.setattr(
+        services.transcode_queue,
+        "enqueue_transcode_job",
+        lambda video_id_arg, resolutions, *, queue=None, force=False: {
+            "accepted": True,
+            "job_id": "rq-job-2",
+            "queue": dummy_queue.name,
+        },
+    )
 
     services.enqueue_transcode(video_id, target_resolutions=["360p"])
 
     assert recorded_timeout.get("value") == services.PENDING_TTL_SECONDS
+
+
+
+

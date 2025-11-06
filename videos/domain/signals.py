@@ -1,28 +1,18 @@
 from __future__ import annotations
 
 import logging
-from typing import Iterable
 
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
-from jobs.domain import services as transcode_services
 from videos.domain.models import Video
+from videos.domain.services_autotranscode import schedule_default_transcodes
 
 logger = logging.getLogger("videoflix")
 
 
-def _missing_renditions(video_id: int) -> list[str]:
-    available: Iterable[str] = transcode_services.ALLOWED_TRANSCODE_PROFILES.keys()
-    return [
-        resolution
-        for resolution in available
-        if not transcode_services.manifest_exists_for_resolution(video_id, resolution)
-    ]
-
-
 @receiver(post_save, sender=Video)
-def enqueue_missing_transcodes(
+def schedule_default_renditions(
     sender,
     instance: Video,
     created: bool,
@@ -34,40 +24,11 @@ def enqueue_missing_transcodes(
         return
 
     video_id = instance.pk
-    source_path = transcode_services.get_video_source_path(video_id)
-    if not source_path.exists():
-        logger.debug(
-            "Auto-transcode skipped (source missing): video_id=%s, path=%s",
-            video_id,
-            source_path,
-        )
-        return
-
-    missing_resolutions = _missing_renditions(video_id)
-    if not missing_resolutions:
-        logger.info(
-            "Auto-transcode skipped (no missing renditions): video_id=%s",
-            video_id,
-        )
-        return
-    if transcode_services.is_transcode_locked(video_id):
-        logger.debug(
-            "Auto-transcode skipped (lock active): video_id=%s, resolutions=%s",
-            video_id,
-            missing_resolutions,
-        )
-        return
-
     try:
-        transcode_services.enqueue_transcode(video_id, target_resolutions=missing_resolutions)
-        logger.info(
-            "Auto-transcode queued: video_id=%s, resolutions=%s",
-            video_id,
-            missing_resolutions,
-        )
-    except Exception as exc:
+        schedule_default_transcodes(video_id)
+    except Exception as exc:  # pragma: no cover - defensive guard
         logger.warning(
-            "Auto-transcode skipped (error): video_id=%s, error=%s",
+            "autotranscode: signal failed: video_id=%s, error=%s",
             video_id,
             exc,
         )

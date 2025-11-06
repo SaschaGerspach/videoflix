@@ -1,0 +1,54 @@
+from __future__ import annotations
+
+import pytest
+from rest_framework.test import APIRequestFactory
+
+from videos.api.views import debug as debug_views
+from videos.domain.models import Video
+
+
+pytestmark = pytest.mark.django_db
+
+
+def test_debug_manifest_handles_unknown_public_id(monkeypatch, settings):
+    settings.DEBUG = True
+    monkeypatch.setattr(
+        debug_views,
+        "resolve_public_id",
+        lambda value: (_ for _ in ()).throw(Video.DoesNotExist),
+    )
+    factory = APIRequestFactory()
+    request = factory.get("/api/_debug/hls/1/720p/manifest")
+    response = debug_views.HLSManifestDebugView.as_view()(request, pub=1, res="720p")
+    assert response.status_code == 200
+    assert response.data["exists"] is False
+
+
+def test_debug_manifest_reports_existing_file(monkeypatch, settings, tmp_path):
+    settings.DEBUG = True
+    media_root = tmp_path / "media"
+    media_root.mkdir()
+    settings.MEDIA_ROOT = media_root.as_posix()
+
+    def resolver(public_id):
+        return 7
+
+    manifest_path = media_root / "hls" / "7" / "720p" / "index.m3u8"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text("#EXTM3U\n", encoding="utf-8")
+
+    monkeypatch.setattr(debug_views, "resolve_public_id", resolver)
+    factory = APIRequestFactory()
+    request = factory.get("/api/_debug/hls/1/720p/manifest")
+    response = debug_views.HLSManifestDebugView.as_view()(request, pub=1, res="720p")
+    assert response.status_code == 200
+    assert response.data["exists"] is True
+    assert response.data["size"] > 0
+
+
+def test_allowed_renditions_debug_requires_debug_flag(settings):
+    settings.DEBUG = False
+    factory = APIRequestFactory()
+    request = factory.get("/api/_debug/renditions")
+    response = debug_views.AllowedRenditionsDebugView.as_view()(request)
+    assert response.status_code == 404

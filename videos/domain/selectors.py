@@ -7,6 +7,7 @@ from django.db.models import QuerySet
 from jobs.domain import services as transcode_services
 
 from .models import Video, VideoSegment, VideoStream
+from .utils import has_hls_ready
 
 _FORBIDDEN_ERROR = "You do not have permission to access this video."
 logger = logging.getLogger("videoflix")
@@ -26,6 +27,46 @@ class SegmentResult:
 def list_published_videos() -> QuerySet[Video]:
     """Return published videos ordered by creation time (newest first)."""
     return Video.objects.filter(is_published=True).order_by("-created_at", "-id")
+
+
+def filter_queryset_ready(
+    qs: QuerySet[Video],
+    res: str = "480p",
+    ready_only: bool = True,
+) -> QuerySet[Video] | list[Video]:
+    """
+    Filter videos by checking their manifest on disk; suitable for small lists only.
+
+    For large datasets consider denormalizing a readiness flag or caching results.
+    """
+    if not ready_only:
+        return qs
+    videos = list(qs)
+    return [video for video in videos if has_hls_ready(video.id, res)]
+
+
+def list_published_videos_ready(res: str = "480p") -> QuerySet[Video] | list[Video]:
+    """
+    Return published videos limited to HLS-ready entries; see filter_queryset_ready().
+    """
+    return filter_queryset_ready(list_published_videos(), res=res, ready_only=True)
+
+
+def resolve_public_id(public_id: int) -> int:
+    """
+    Resolve a public ordinal (1-based) to the corresponding Video pk.
+    """
+    if public_id < 1:
+        raise Video.DoesNotExist
+
+    ordered_ids = list(list_published_videos().values_list("id", flat=True))
+    if public_id <= len(ordered_ids):
+        return ordered_ids[public_id - 1]
+
+    if Video.objects.filter(pk=public_id).exists():
+        return public_id
+
+    raise Video.DoesNotExist
 
 
 def _video_visible_to_user(video: Video, user) -> bool:

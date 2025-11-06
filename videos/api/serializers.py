@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from jobs.domain.services import ALLOWED_TRANSCODE_PROFILES
+from videos.domain import thumbs as thumb_utils
 from videos.domain.models import Video
 
 
@@ -20,10 +21,16 @@ class VideoSegmentRequestSerializer(serializers.Serializer):
 
 
 class VideoSerializer(serializers.ModelSerializer):
+    thumbnail_url = serializers.SerializerMethodField()
+
     class Meta:
         model = Video
         fields = ["id", "created_at", "title", "description", "thumbnail_url", "category"]
         read_only_fields = fields
+
+    def get_thumbnail_url(self, obj: Video) -> str:
+        request = self.context.get("request")
+        return thumb_utils.get_thumbnail_url(request, obj.id) or ""
 
 
 class VideoSegmentContentRequestSerializer(serializers.Serializer):

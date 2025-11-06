@@ -9,7 +9,7 @@ from rest_framework.views import APIView
 from drf_spectacular.utils import extend_schema
 
 from videos.api.serializers import VideoListRequestSerializer, VideoSerializer
-from videos.domain.selectors import list_published_videos
+from videos.domain import selectors_public
 
 from .common import ERROR_RESPONSE_REF
 
@@ -24,7 +24,7 @@ from .common import ERROR_RESPONSE_REF
     auth=[{"cookieJwtAuth": []}],
 )
 class VideoListView(APIView):
-    """Return all available videos for authenticated users."""
+    """Return all available videos for authenticated users (HLS-ready by default)."""
 
     permission_classes = [IsAuthenticated]
 
@@ -43,6 +43,13 @@ class VideoListView(APIView):
         if not serializer.is_valid():
             return Response({"errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
-        videos = list_published_videos()
-        payload = VideoSerializer(videos, many=True).data
+        ready_param = request.query_params.get("ready_only")
+        ready_only = True
+        if ready_param is not None:
+            ready_only = ready_param not in {"0", "false", "False"}
+
+        payload = selectors_public.list_for_user_with_public_ids(
+            request.user,
+            ready_only=ready_only,
+        )
         return Response(payload, status=status.HTTP_200_OK)

@@ -2,7 +2,7 @@
 
 import logging
 import time
-from typing import Any
+from typing import Any, Callable, Iterable, Optional
 
 from django.conf import settings
 
@@ -12,7 +12,33 @@ from jobs.domain.services import TranscodeError
 logger = logging.getLogger("videoflix")
 
 
-def transcode_video_job(video_id: int, resolutions: list[str] | None = None) -> dict[str, Any]:
+def _safe_run_transcode(
+    runner: Callable[..., Any],
+    video_id: int,
+    resolutions: Iterable[str],
+    *,
+    force: bool,
+) -> Any:
+    """
+    Execute the provided run_transcode callable while tolerating deployments/tests
+    that do not accept a ``force`` keyword argument yet.
+    """
+    try:
+        return runner(video_id, resolutions, force=force)
+    except TypeError as exc:
+        message = str(exc)
+        if "force" not in message or "unexpected keyword argument" not in message:
+            raise
+        return runner(video_id, resolutions)
+
+
+def transcode_video_job(
+    video_id: int,
+    resolutions: Optional[Iterable[str]] = None,
+    *,
+    force: bool = False,
+    **kwargs,
+) -> dict[str, Any]:
     """
     Execute the actual transcode using the existing domain service.
 
@@ -50,7 +76,23 @@ def transcode_video_job(video_id: int, resolutions: list[str] | None = None) -> 
     try:
         for attempt in range(1, max_attempts + 1):
             try:
-                services.run_transcode_job(video_id, resolved_resolutions)
+                run_callable = getattr(services, "run_transcode_job", None)
+                if run_callable:
+                    compat_runner = getattr(services, "invoke_run_transcode_job", None)
+                    if callable(compat_runner):
+                        compat_runner(video_id, resolved_resolutions, force=bool(force))
+                    else:
+                        # Older deployments/tests may not accept ``force`` yet.
+                        _safe_run_transcode(
+                            run_callable,
+                            video_id,
+                            resolved_resolutions,
+                            force=bool(force),
+                        )
+                else:  # Backward-compat fallback without force support.
+                    services.enqueue_transcode(
+                        video_id, target_resolutions=resolved_resolutions
+                    )
                 break
             except TranscodeError as exc:
                 status_code = getattr(exc, "status_code", None)
@@ -92,3 +134,10 @@ def transcode_video_job(video_id: int, resolutions: list[str] | None = None) -> 
         "video_id": video_id,
         "resolutions": resolved_resolutions,
     }
+
+
+def run_thumbnail_job_task(video_id: int) -> dict[str, Any]:
+    """
+    Thin wrapper so thumbnail generation can be queued later on.
+    """
+    return services.run_thumbnail_job(video_id)

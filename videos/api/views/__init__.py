@@ -8,7 +8,10 @@ from __future__ import annotations
 from .media_base import M3U8Renderer, MediaSegmentBaseView, TSRenderer
 from .common import ERROR_RESPONSE_REF, _format_validation_error
 from .list import VideoListView
-from .manifest import VideoSegmentView
+from .debug import AllowedRenditionsDebugView, HLSManifestDebugView, ThumbsDebugView
+from .health import VideoHealthView
+from .queue_health import QueueHealthView
+from .manifest import DebugAuthView, VideoManifestView, VideoSegmentView
 from .segment import VideoSegmentContentView
 from .transcode import VideoTranscodeView
 
@@ -20,8 +23,15 @@ __all__ = [
     "_format_validation_error",
     "VideoListView",
     "VideoSegmentView",
+    "VideoManifestView",
     "VideoSegmentContentView",
     "VideoTranscodeView",
+    "DebugAuthView",
+    "HLSManifestDebugView",
+    "ThumbsDebugView",
+    "AllowedRenditionsDebugView",
+    "VideoHealthView",
+    "QueueHealthView",
 ]
 
 try:  # Optional upload view

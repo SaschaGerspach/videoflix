@@ -36,6 +36,25 @@ from drf_spectacular.utils import OpenApiExample, extend_schema
 ERROR_RESPONSE_REF = {"$ref": "#/components/schemas/ErrorResponse"}
 
 
+def _base_cookie_kwargs(request):
+    path = getattr(settings, "SESSION_COOKIE_PATH", "/")
+    domain = getattr(settings, "SESSION_COOKIE_DOMAIN", None)
+    kwargs = {
+        "httponly": True,
+        "secure": bool(getattr(settings, "SESSION_COOKIE_SECURE", False)),
+        "samesite": getattr(settings, "SESSION_COOKIE_SAMESITE", "Lax"),
+        "path": path,
+    }
+    if domain:
+        kwargs["domain"] = domain
+
+    if request.is_secure():
+        kwargs["secure"] = getattr(settings, "DEV_COOKIE_SECURE", kwargs["secure"])
+        kwargs["samesite"] = getattr(settings, "DEV_COOKIE_SAMESITE", kwargs["samesite"])
+
+    return kwargs
+
+
 @extend_schema(
     tags=["Auth"],
     request=RegistrationRequestSerializer,
@@ -139,28 +158,11 @@ def login(request):
         status=status.HTTP_200_OK,
     )
 
-    secure_cookie = bool(getattr(settings, "SESSION_COOKIE_SECURE", False))
-    path = getattr(settings, "SESSION_COOKIE_PATH", "/")
-    domain = getattr(settings, "SESSION_COOKIE_DOMAIN", None)
-    samesite = getattr(settings, "SESSION_COOKIE_SAMESITE", "Lax")
+    access_cookie_kwargs = _base_cookie_kwargs(request)
+    access_cookie_kwargs["max_age"] = tokens["access_max_age"]
 
-    access_cookie_kwargs = {
-        "httponly": True,
-        "secure": secure_cookie,
-        "samesite": samesite,
-        "path": path,
-        "max_age": tokens["access_max_age"],
-    }
-    refresh_cookie_kwargs = {
-        "httponly": True,
-        "secure": secure_cookie,
-        "samesite": samesite,
-        "path": path,
-        "max_age": tokens["refresh_max_age"],
-    }
-    if domain:
-        access_cookie_kwargs["domain"] = domain
-        refresh_cookie_kwargs["domain"] = domain
+    refresh_cookie_kwargs = _base_cookie_kwargs(request)
+    refresh_cookie_kwargs["max_age"] = tokens["refresh_max_age"]
 
     response.set_cookie(
         "access_token", tokens["access"], **access_cookie_kwargs)
@@ -210,19 +212,8 @@ def logout_view(request):
         },
         status=status.HTTP_200_OK,
     )
-    secure_cookie = bool(getattr(settings, "SESSION_COOKIE_SECURE", False))
-    path = getattr(settings, "SESSION_COOKIE_PATH", "/")
-    domain = getattr(settings, "SESSION_COOKIE_DOMAIN", None)
-    samesite = getattr(settings, "SESSION_COOKIE_SAMESITE", "Lax")
-    deletion_kwargs = {
-        "httponly": True,
-        "secure": secure_cookie,
-        "samesite": samesite,
-        "path": path,
-        "max_age": 0,
-    }
-    if domain:
-        deletion_kwargs["domain"] = domain
+    deletion_kwargs = _base_cookie_kwargs(request)
+    deletion_kwargs["max_age"] = 0
 
     response.set_cookie("access_token", "", **deletion_kwargs)
     response.set_cookie("refresh_token", "", **deletion_kwargs)
@@ -289,19 +280,8 @@ def token_refresh(request):
         status=status.HTTP_200_OK,
     )
 
-    secure_cookie = bool(getattr(settings, "SESSION_COOKIE_SECURE", False))
-    path = getattr(settings, "SESSION_COOKIE_PATH", "/")
-    domain = getattr(settings, "SESSION_COOKIE_DOMAIN", None)
-    samesite = getattr(settings, "SESSION_COOKIE_SAMESITE", "Lax")
-    cookie_kwargs = {
-        "httponly": True,
-        "secure": secure_cookie,
-        "samesite": samesite,
-        "path": path,
-        "max_age": token_data["access_max_age"],
-    }
-    if domain:
-        cookie_kwargs["domain"] = domain
+    cookie_kwargs = _base_cookie_kwargs(request)
+    cookie_kwargs["max_age"] = token_data["access_max_age"]
 
     response.set_cookie("access_token", token_data["access"], **cookie_kwargs)
     return response

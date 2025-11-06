@@ -18,6 +18,7 @@ from jobs.domain import services as transcode_services
 from jobs.domain.services import ALLOWED_TRANSCODE_PROFILES, TranscodeError, is_transcode_locked
 from videos.api.serializers import VideoTranscodeRequestSerializer
 from videos.domain.models import Video
+from videos.domain.selectors import resolve_public_id
 
 from .common import ERROR_RESPONSE_REF, _format_validation_error, logger
 
@@ -61,6 +62,15 @@ class VideoTranscodeView(APIView):
     http_method_names = ["post", "options"]
 
     def post(self, request, video_id: int):
+        try:
+            real_id = resolve_public_id(video_id)
+        except Video.DoesNotExist:
+            return Response(
+                {"errors": {"non_field_errors": ["Video not found."]}},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        video_id = real_id
+
         logger.info(
             "Transcode request: video_id=%s, IS_TEST_ENV=%s",
             video_id,

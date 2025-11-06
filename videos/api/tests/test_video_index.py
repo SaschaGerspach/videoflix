@@ -11,8 +11,24 @@ from rest_framework.test import APIClient
 
 from videos.api.serializers import VideoSegmentContentRequestSerializer
 from videos.domain.models import Video
+from videos.domain.utils import find_manifest_path
 
 pytestmark = pytest.mark.django_db
+
+
+@pytest.fixture(autouse=True)
+def media_root(settings, tmp_path):
+    root = tmp_path / "media"
+    root.mkdir(parents=True, exist_ok=True)
+    settings.MEDIA_ROOT = root
+    return root
+
+
+def _ensure_hls_ready(video_id: int, res: str = "480p") -> None:
+    manifest_path = find_manifest_path(video_id, res)
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text("#EXTM3U\n#EXTINF:10,\nsegment.ts\n", encoding="utf-8")
+    (manifest_path.parent / "segment.ts").write_bytes(b"x")
 
 
 def segment_url(movie_id: int, resolution: str, segment: str) -> str:
@@ -30,10 +46,22 @@ def assert_json_error(response, expected_status: int) -> dict:
     return payload
 
 
+def _collect_response_bytes(response) -> bytes:
+    if hasattr(response, "_collected_stream"):
+        return response._collected_stream
+    if hasattr(response, "streaming_content"):
+        data = b"".join(response.streaming_content)
+        response._collected_stream = data
+        response.streaming_content = iter((data,))
+        return data
+    return response.content
+
+
 def assert_ts_success(response, expected_payload: bytes) -> None:
     assert response.status_code == status.HTTP_200_OK
     assert response["Content-Type"].lower().startswith("video/mp2t")
-    assert response.content == expected_payload
+    body = _collect_response_bytes(response)
+    assert body == expected_payload
 
 
 def create_user(prefix: str = "user"):
@@ -47,6 +75,7 @@ def create_user(prefix: str = "user"):
 
 
 def create_video(owner, **overrides):
+    hls_ready = overrides.pop("hls_ready", True)
     defaults = {
         "title": "Sample Title",
         "description": "Sample Description",
@@ -55,7 +84,20 @@ def create_video(owner, **overrides):
         "is_published": True,
     }
     defaults.update(overrides)
-    return Video.objects.create(owner=owner, **defaults)
+    video = Video.objects.create(owner=owner, **defaults)
+    if hls_ready and video.is_published:
+        _ensure_hls_ready(video.id)
+    return video
+
+
+def manifest_with_segments(*segments: str) -> str:
+    if not segments:
+        segments = ("000.ts",)
+    lines = ["#EXTM3U"]
+    for segment in segments:
+        lines.append("#EXTINF:10,")
+        lines.append(segment)
+    return "\n".join(lines) + "\n"
 
 
 def auth_client_for(user) -> APIClient:
@@ -82,7 +124,8 @@ def video() -> Video:
 
 @pytest.fixture
 def stream(video: Video):
-    return video.streams.create(resolution="720p", manifest="#EXTM3U\n")
+    manifest = manifest_with_segments("000.ts")
+    return video.streams.create(resolution="720p", manifest=manifest)
 
 
 @pytest.fixture
@@ -128,7 +171,7 @@ def test_index_excludes_unpublished_videos_for_other_users():
 def test_stream_allows_access_to_published_of_other_user():
     owner = create_user("owner")
     video = create_video(owner, is_published=True)
-    stream = video.streams.create(resolution="720p", manifest="#EXTM3U\n")
+    stream = video.streams.create(resolution="720p", manifest=manifest_with_segments("000.ts"))
     stream.segments.create(name="000.ts", content=b"published")
 
     viewer = create_user("viewer")
@@ -147,28 +190,28 @@ def test_stream_allows_access_to_published_of_other_user():
 def test_stream_denies_access_to_unpublished_of_other_user():
     owner = create_user("owner")
     video = create_video(owner, is_published=False)
-    stream = video.streams.create(resolution="720p", manifest="#EXTM3U\n")
+    stream = video.streams.create(resolution="720p", manifest=manifest_with_segments("000.ts"))
     stream.segments.create(name="000.ts", content=b"draft")
 
     other_user = create_user("other")
     client = auth_client_for(other_user)
 
     manifest_response = client.get(reverse("video-segment", kwargs={"movie_id": video.id, "resolution": "720p"}))
-    manifest_payload = assert_json_error(manifest_response, status.HTTP_403_FORBIDDEN)
-    assert manifest_payload["errors"]["non_field_errors"] == ["You do not have permission to access this video."]
+    manifest_payload = assert_json_error(manifest_response, status.HTTP_404_NOT_FOUND)
+    assert manifest_payload["errors"]["non_field_errors"] == ["Video manifest not found."]
 
     segment_response = client.get(
         segment_url(video.id, "720p", "000.ts"),
         HTTP_ACCEPT="video/mp2t",
     )
-    segment_payload = assert_json_error(segment_response, status.HTTP_403_FORBIDDEN)
-    assert segment_payload["errors"]["non_field_errors"] == ["You do not have permission to access this video."]
+    segment_payload = assert_json_error(segment_response, status.HTTP_404_NOT_FOUND)
+    assert segment_payload["errors"]["non_field_errors"] == ["Video segment not found."]
 
 
 def test_stream_owner_can_access_unpublished_own_video():
     owner = create_user("owner")
     video = create_video(owner, is_published=False)
-    stream = video.streams.create(resolution="720p", manifest="#EXTM3U\n")
+    stream = video.streams.create(resolution="720p", manifest=manifest_with_segments("000.ts"))
     stream.segments.create(name="000.ts", content=b"draft")
 
     client = auth_client_for(owner)
@@ -287,7 +330,7 @@ def test_video_segment_is_idempotent(
 
     assert_ts_success(first, payload)
     assert_ts_success(second, payload)
-    assert first.content == second.content
+    assert _collect_response_bytes(first) == _collect_response_bytes(second)
 
 
 @pytest.mark.parametrize("accept_header", ["application/json", "text/plain"])
@@ -333,7 +376,7 @@ def test_video_segment_head_method_policy(
     response = authenticated_client.head(segment_url(stream.video_id, stream.resolution, "head.ts"))
 
     assert response.status_code == status.HTTP_200_OK
-    assert response.content == b""
+    assert _collect_response_bytes(response) == b""
     assert response["Content-Type"].lower().startswith("video/mp2t")
 
 

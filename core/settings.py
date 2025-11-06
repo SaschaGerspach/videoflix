@@ -10,6 +10,8 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
+import importlib.util
+import logging
 import os
 import sys
 from pathlib import Path
@@ -53,6 +55,25 @@ def env_int(name: str, default: int) -> int:
         return default
 
 
+def _is_blank_value(value: str | None) -> bool:
+    if value is None:
+        return True
+    return str(value).strip().lower() in {"", "none", "null"}
+
+
+def env_csv(name: str, default: str = "", allow_default: bool = True) -> list[str]:
+    has_key = name in os.environ
+    raw_value = os.environ.get(name) if has_key else None
+
+    if _is_blank_value(raw_value):
+        if allow_default and not has_key and not _is_blank_value(default):
+            raw_value = default
+        else:
+            raw_value = ""
+
+    return [part.strip() for part in str(raw_value).split(",") if part.strip()]
+
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
@@ -65,15 +86,24 @@ ENV = env("ENV", "dev")
 USE_SQLITE_FOR_TESTS = env_bool("USE_SQLITE_FOR_TESTS", False)
 IS_TEST_ENV = ENV.lower() == "test" or USE_SQLITE_FOR_TESTS or IS_PYTEST
 
-ALLOWED_HOSTS = [h for h in env("ALLOWED_HOSTS", "").split(",") if h] or []
-CSRF_TRUSTED_ORIGINS = [o for o in env(
-    "CSRF_TRUSTED_ORIGINS", "").split(",") if o]
-CORS_ALLOWED_ORIGINS = [
-    o for o in env(
-        "CORS_ALLOWED_ORIGINS"
-    ).split(",") if o
-]
-CORS_ALLOW_CREDENTIALS = env_bool("CORS_ALLOW_CREDENTIALS", True)
+DEV_FRONTEND_ORIGIN = env("DEV_FRONTEND_ORIGIN", "https://localhost:3000")
+DEV_COOKIE_SAMESITE = env("DEV_COOKIE_SAMESITE", "None")
+DEV_COOKIE_SECURE = env_bool("DEV_COOKIE_SECURE", True)
+DEV_TLS_CERT = env("DEV_TLS_CERT", "")
+DEV_TLS_KEY = env("DEV_TLS_KEY", "")
+PUBLIC_MEDIA_BASE = env("PUBLIC_MEDIA_BASE", "http://127.0.0.1:8000")
+
+ALLOWED_HOSTS = env_csv("ALLOWED_HOSTS", default="127.0.0.1,localhost")
+CSRF_TRUSTED_ORIGINS = env_csv("CSRF_TRUSTED_ORIGINS", allow_default=False)
+CORS_ALLOWED_ORIGINS = env_csv(
+    "CORS_ALLOWED_ORIGINS", default=DEV_FRONTEND_ORIGIN)
+CORS_ALLOW_CREDENTIALS = True
+
+# Allowed HLS renditions (env override optional)
+ALLOWED_RENDITIONS = tuple(env_csv("ALLOWED_RENDITIONS", default="480p,720p"))
+HLS_RENDITIONS = ALLOWED_RENDITIONS
+VIDEO_ALLOWED_RENDITIONS = ALLOWED_RENDITIONS
+VIDEO_RENDITIONS = ALLOWED_RENDITIONS
 
 
 # Application definition
@@ -96,8 +126,12 @@ INSTALLED_APPS = [
     'uploads',
     'drf_spectacular',
     'drf_spectacular_sidecar',
+    'django_rq',
 
 ]
+
+if importlib.util.find_spec("django_extensions"):
+    INSTALLED_APPS += ["django_extensions"]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
@@ -174,6 +208,9 @@ TRANSCODE_RETRY_MAX = env_int("TRANSCODE_RETRY_MAX", 6)
 TRANSCODE_RETRY_DELAYS = [
     int(x) for x in env("TRANSCODE_RETRY_DELAYS", "1,2,4,8,16,32").split(",") if x.strip()
 ]
+THUMB_TIMESTAMP = env("THUMB_TIMESTAMP", "00:00:03")
+THUMB_WIDTH = env_int("THUMB_WIDTH", 320)
+THUMB_HEIGHT = env_int("THUMB_HEIGHT", 180)
 RQ_QUEUE_DEFAULT = env("RQ_QUEUE_DEFAULT", "default")
 CACHE_TIMEOUT_SECONDS = env_int("CACHE_TIMEOUT_SECONDS", 300)
 
@@ -260,6 +297,9 @@ REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "accounts.domain.authentication.CookieJWTAuthentication",
     ],
+    "DEFAULT_RENDERER_CLASSES": [
+        "rest_framework.renderers.JSONRenderer",
+    ],
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
     ],
@@ -321,6 +361,19 @@ SPECTACULAR_SETTINGS.update({
     "SECURITY": [{"cookieJwtAuth": []}],
 })
 
+# Dev HLS bypass: nur lokal und nur in DEBUG
+DEV_HLS_AUTH_BYPASS = env_bool("DEV_HLS_AUTH_BYPASS", False)
+
+RQ_URL = env("RQ_URL", "redis://127.0.0.1:6379/0")
+RQ_QUEUE_TRANSCODE = (env("RQ_QUEUE_TRANSCODE", "transcode") or "").strip()
+
+RQ_QUEUES: dict[str, dict[str, int]] = {}
+if RQ_QUEUE_TRANSCODE:
+    RQ_QUEUES[RQ_QUEUE_TRANSCODE] = {
+        "URL": RQ_URL,
+        "DEFAULT_TIMEOUT": 60 * 20,
+    }
+
 
 LOGGING = {
     "version": 1,
@@ -334,8 +387,13 @@ LOGGING = {
     },
 }
 
+if DEBUG:
+    logging.getLogger("videoflix").info(
+        "ALLOWED_RENDITIONS=%s", ALLOWED_RENDITIONS)
+
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
+PUBLIC_MEDIA_BASE = "https://videoflix.api.sascha-gerspach.tld"
 
 # Email
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", "noreply@videoflix.local")
