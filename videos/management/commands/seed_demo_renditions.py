@@ -108,7 +108,9 @@ class Command(BaseCommand):
             segment_path.write_bytes(payload)
             segments.append(f"#EXTINF:2.0,\n{segment_name}")
 
-        manifest_content = MANIFEST_TEMPLATE.format(segments="\n".join(segments)).strip() + "\n"
+        manifest_content = (
+            MANIFEST_TEMPLATE.format(segments="\n".join(segments)).strip() + "\n"
+        )
         manifest_path = rendition_dir / "index.m3u8"
         manifest_path.write_text(manifest_content, encoding="utf-8")
 

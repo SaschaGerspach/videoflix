@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from typing import Any
 from uuid import uuid4
 
@@ -98,7 +98,14 @@ def test_video_list_returns_videos_for_authenticated_user() -> None:
     assert isinstance(payload, list)
     assert len(payload) == 2
     first = payload[0]
-    assert {"id", "created_at", "title", "description", "thumbnail_url", "category"} <= set(first.keys())
+    assert {
+        "id",
+        "created_at",
+        "title",
+        "description",
+        "thumbnail_url",
+        "category",
+    } <= set(first.keys())
     titles = {item["title"] for item in payload}
     assert titles == {"Movie Title", "Another Movie"}
 
@@ -113,7 +120,7 @@ def test_video_list_handles_empty_collection() -> None:
 
 
 def test_video_list_returns_deterministic_ordering() -> None:
-    base_time = datetime(2024, 1, 1, 0, 0, tzinfo=timezone.utc)
+    base_time = datetime(2024, 1, 1, 0, 0, tzinfo=UTC)
     older = _create_video(title="Older", category="comedy")
     latest = _create_video(title="Latest", category="action")
     middle = _create_video(title="Middle", category="drama")
@@ -123,7 +130,9 @@ def test_video_list_returns_deterministic_ordering() -> None:
     Video.objects.filter(pk=latest.pk).update(created_at=base_time + timedelta(days=1))
 
     newest_duplicate = _create_video(title="Newest Duplicate", category="romance")
-    Video.objects.filter(pk=newest_duplicate.pk).update(created_at=base_time + timedelta(days=1))
+    Video.objects.filter(pk=newest_duplicate.pk).update(
+        created_at=base_time + timedelta(days=1)
+    )
 
     client = _authenticated_client()
 
@@ -179,8 +188,9 @@ def test_video_list_is_idempotent() -> None:
     assert first_response.json() == second_response.json()
 
 
-def test_video_serializer_uses_public_media_base(settings, media_root):
-    settings.PUBLIC_MEDIA_BASE = "https://static.example.com"
+def test_video_serializer_uses_frontend_origin(settings, media_root):
+    settings.FRONTEND_BASE_URL = "https://static.example.com/app"
+    settings.DEBUG = False
     video = _create_video()
     thumb_path = media_root / "thumbs" / str(video.id) / "default.jpg"
     thumb_path.parent.mkdir(parents=True, exist_ok=True)
@@ -191,3 +201,9 @@ def test_video_serializer_uses_public_media_base(settings, media_root):
     url = payload["thumbnail_url"]
     assert url.startswith("https://static.example.com")
     assert url.endswith(f"/media/thumbs/{video.id}/default.jpg")
+
+
+def test_video_serializer_returns_empty_string_for_missing_thumbnail(media_root):
+    video = _create_video()
+    serializer = VideoSerializer(instance=video, context={})
+    assert serializer.data["thumbnail_url"] == ""

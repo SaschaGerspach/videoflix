@@ -18,7 +18,7 @@ def media_root(tmp_path, settings):
     root = tmp_path / "media"
     root.mkdir(parents=True, exist_ok=True)
     settings.MEDIA_ROOT = root
-    yield root
+    return root
 
 
 @pytest.fixture(autouse=True)
@@ -30,7 +30,9 @@ def clear_cache():
 
 @pytest.fixture
 def create_user():
-    def _create(email: str, password: str = "securepassword123", *, is_active: bool = True):
+    def _create(
+        email: str, password: str = "securepassword123", *, is_active: bool = True
+    ):
         user_model = get_user_model()
         return user_model.objects.create_user(
             username=email,
@@ -114,61 +116,62 @@ def test_transcode_requires_auth(video):
     assert "errors" in payload
 
 
-def test_transcode_owner_can_transcode(owner_client, video, video_source_file, mock_ffmpeg):
+def test_transcode_owner_can_transcode(
+    owner_client, video, video_source_file, mock_ffmpeg
+):
     response = owner_client.post(transcode_url(video.id), {}, format="json")
 
     assert response.status_code == status.HTTP_202_ACCEPTED
-    assert response.json() == {
-        "detail": "Transcode accepted", "video_id": video.id}
+    assert response.json() == {"detail": "Transcode accepted", "video_id": video.id}
 
 
 def test_transcode_forbidden_for_non_owner(authenticated_client, video):
-    response = authenticated_client.post(
-        transcode_url(video.id), {}, format="json")
+    response = authenticated_client.post(transcode_url(video.id), {}, format="json")
 
     assert response.status_code == status.HTTP_403_FORBIDDEN
     assert response.json() == {
-        "errors": {"non_field_errors": ["You do not have permission to modify this video."]}
+        "errors": {
+            "non_field_errors": ["You do not have permission to modify this video."]
+        }
     }
 
 
-def test_transcode_allowed_for_admin(admin_client, video, video_source_file, mock_ffmpeg):
+def test_transcode_allowed_for_admin(
+    admin_client, video, video_source_file, mock_ffmpeg
+):
     response = admin_client.post(transcode_url(video.id), {}, format="json")
 
     assert response.status_code == status.HTTP_202_ACCEPTED
-    assert response.json() == {
-        "detail": "Transcode accepted", "video_id": video.id}
+    assert response.json() == {"detail": "Transcode accepted", "video_id": video.id}
 
 
 def test_transcode_404_for_unknown_video(authenticated_client):
-    response = authenticated_client.post(
-        transcode_url(9999), {}, format="json")
+    response = authenticated_client.post(transcode_url(9999), {}, format="json")
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
-    assert response.json() == {"errors": {
-        "non_field_errors": ["Video not found."]}}
+    assert response.json() == {"errors": {"non_field_errors": ["Video not found."]}}
 
 
-def test_transcode_409_when_already_processing(owner_client, video, video_source_file, mock_ffmpeg):
-    cache.set(transcode_services.transcode_lock_key(
-        video.id), True, timeout=900)
+def test_transcode_409_when_already_processing(
+    owner_client, video, video_source_file, mock_ffmpeg
+):
+    cache.set(transcode_services.transcode_lock_key(video.id), True, timeout=900)
 
     response = owner_client.post(transcode_url(video.id), {}, format="json")
 
     assert response.status_code == status.HTTP_409_CONFLICT
-    assert response.json() == {"errors": {"non_field_errors": [
-        "Transcode already in progress."]}}
+    assert response.json() == {
+        "errors": {"non_field_errors": ["Transcode already in progress."]}
+    }
 
 
 def test_transcode_validates_resolutions(owner_client, video, video_source_file):
     payload = {"resolutions": ["360p", "bogus"]}
 
-    response = owner_client.post(
-        transcode_url(video.id), payload, format="json")
+    response = owner_client.post(transcode_url(video.id), payload, format="json")
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
-    assert response.json() == {"errors": {
-        "resolutions": ["Invalid value 'bogus'."]}}
+    assert response.json() == {"errors": {"resolutions": ["Invalid value 'bogus'."]}}
 
 
 def test_transcode_gracefully_handles_missing_ffmpeg(
@@ -182,25 +185,24 @@ def test_transcode_gracefully_handles_missing_ffmpeg(
     response = owner_client.post(transcode_url(video.id), {}, format="json")
 
     assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
-    assert response.json() == {"errors": {
-        "non_field_errors": ["ffmpeg not found"]}}
+    assert response.json() == {"errors": {"non_field_errors": ["ffmpeg not found"]}}
 
 
 def test_transcode_accepts_query_resolutions_ok(
     owner_client, video, video_source_file, mock_ffmpeg
 ):
     response = owner_client.post(
-        f"{transcode_url(video.id)}?res=360p", {}, format="json")
+        f"{transcode_url(video.id)}?res=360p", {}, format="json"
+    )
 
     assert response.status_code == status.HTTP_202_ACCEPTED
-    assert response.json() == {
-        "detail": "Transcode accepted", "video_id": video.id}
+    assert response.json() == {"detail": "Transcode accepted", "video_id": video.id}
 
 
 def test_transcode_rejects_unknown_resolution(owner_client, video):
     response = owner_client.post(
-        f"{transcode_url(video.id)}?res=999p", {}, format="json")
+        f"{transcode_url(video.id)}?res=999p", {}, format="json"
+    )
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
-    assert response.json() == {"errors": {
-        "res": ["Unsupported resolution '999p'"]}}
+    assert response.json() == {"errors": {"res": ["Unsupported resolution '999p'"]}}

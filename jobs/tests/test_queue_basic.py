@@ -60,7 +60,9 @@ def test_enqueue_transcode_job_uses_queue(monkeypatch, settings):
     queue_obj = queue_module.get_transcode_queue()
     assert queue_obj is dummy_queue
 
-    result = queue_module.enqueue_transcode_job(456, resolutions=["480p"], queue=queue_obj)
+    result = queue_module.enqueue_transcode_job(
+        456, resolutions=["480p"], queue=queue_obj
+    )
 
     assert result == {"accepted": True, "job_id": "job-1", "queue": "transcode"}
     assert dummy_queue.calls, "expected enqueue to be invoked"
@@ -70,19 +72,16 @@ def test_enqueue_transcode_job_uses_queue(monkeypatch, settings):
     assert kwargs["kwargs"] == {"force": False}
 
 
-
 def test_get_transcode_queue_without_config(settings):
     settings.RQ_QUEUE_TRANSCODE = ""
     settings.RQ_QUEUES = {}
     assert queue_module.get_transcode_queue() is None
 
 
-
 def test_get_transcode_queue_missing_mapping(settings):
     settings.RQ_QUEUE_TRANSCODE = "transcode"
     settings.RQ_QUEUES = {}
     assert queue_module.get_transcode_queue() is None
-
 
 
 @pytest.mark.django_db

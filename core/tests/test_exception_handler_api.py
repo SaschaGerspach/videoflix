@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from rest_framework.exceptions import NotAuthenticated, PermissionDenied, ValidationError
+from rest_framework.exceptions import (
+    NotAuthenticated,
+    PermissionDenied,
+    ValidationError,
+)
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.test import APIRequestFactory
@@ -52,7 +56,9 @@ def test_permission_denied_returns_403_payload():
 
 def test_error_handler_handles_drf_none(monkeypatch):
     request = _make_request()
-    monkeypatch.setattr(exception_handler_module, "drf_exception_handler", lambda exc, ctx: None)
+    monkeypatch.setattr(
+        exception_handler_module, "drf_exception_handler", lambda exc, ctx: None
+    )
 
     response = error_handler(ValueError("boom"), {"request": request})
 
@@ -63,7 +69,9 @@ def test_error_handler_handles_drf_none(monkeypatch):
 def test_error_handler_preserves_errors_payload(monkeypatch):
     request = _make_request()
     original = Response({"errors": {"foo": ["bar"]}}, status=422)
-    monkeypatch.setattr(exception_handler_module, "drf_exception_handler", lambda exc, ctx: original)
+    monkeypatch.setattr(
+        exception_handler_module, "drf_exception_handler", lambda exc, ctx: original
+    )
 
     response = error_handler(RuntimeError("ignored"), {"request": request})
 
@@ -73,7 +81,9 @@ def test_error_handler_preserves_errors_payload(monkeypatch):
 def test_error_handler_wraps_list_payload(monkeypatch):
     request = _make_request()
     original = Response(["boom"], status=400)
-    monkeypatch.setattr(exception_handler_module, "drf_exception_handler", lambda exc, ctx: original)
+    monkeypatch.setattr(
+        exception_handler_module, "drf_exception_handler", lambda exc, ctx: original
+    )
 
     response = error_handler(RuntimeError("list"), {"request": request})
 

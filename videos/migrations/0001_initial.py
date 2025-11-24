@@ -7,22 +7,41 @@ class Migration(migrations.Migration):
 
     initial = True
 
-    dependencies = [
-    ]
+    dependencies = []
 
     operations = [
         migrations.CreateModel(
-            name='Video',
+            name="Video",
             fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('title', models.CharField(max_length=255)),
-                ('description', models.TextField()),
-                ('thumbnail_url', models.URLField()),
-                ('category', models.CharField(choices=[('drama', 'Drama'), ('romance', 'Romance'), ('action', 'Action'), ('documentary', 'Documentary'), ('comedy', 'Comedy')], max_length=32)),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
+                (
+                    "id",
+                    models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                ("title", models.CharField(max_length=255)),
+                ("description", models.TextField()),
+                ("thumbnail_url", models.URLField()),
+                (
+                    "category",
+                    models.CharField(
+                        choices=[
+                            ("drama", "Drama"),
+                            ("romance", "Romance"),
+                            ("action", "Action"),
+                            ("documentary", "Documentary"),
+                            ("comedy", "Comedy"),
+                        ],
+                        max_length=32,
+                    ),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
             ],
             options={
-                'ordering': ('-created_at', 'pk'),
+                "ordering": ("-created_at", "pk"),
             },
         ),
     ]

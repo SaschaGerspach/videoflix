@@ -1,7 +1,9 @@
+"""CLI helper that finds missing renditions and enqueues transcodes."""
+
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable, Sequence
+from collections.abc import Iterable, Sequence
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
@@ -35,6 +37,8 @@ except Exception:  # pragma: no cover - fallback if helpers change
 
 
 class Command(BaseCommand):
+    """Management command that inspects videos and enqueues needed renditions."""
+
     help = "Check for missing HLS renditions and enqueue transcodes for the gaps."
 
     def add_arguments(self, parser):
@@ -77,6 +81,7 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        """Process CLI arguments, display current state, and enqueue missing renditions."""
         public_inputs = _flatten(options.get("public_ids"))
         real_inputs = _flatten(options.get("real_ids"))
         resolution: str = options["res"]
@@ -103,7 +108,9 @@ class Command(BaseCommand):
         missing_real_inputs: list[int] = []
         if real_inputs:
             existing = set(
-                Video.objects.filter(pk__in=set(real_inputs)).values_list("pk", flat=True)
+                Video.objects.filter(pk__in=set(real_inputs)).values_list(
+                    "pk", flat=True
+                )
             )
             for real_id in real_inputs:
                 if real_id not in existing:
@@ -118,7 +125,9 @@ class Command(BaseCommand):
                 self.stderr.write(f"Video not found for real id {missing}.")
             raise CommandError("No valid videos to process.")
 
-        videos = {video.pk: video for video in Video.objects.filter(pk__in=target_real_ids)}
+        videos = {
+            video.pk: video for video in Video.objects.filter(pk__in=target_real_ids)
+        }
         missing_videos = [vid for vid in target_real_ids if vid not in videos]
         if missing_videos:
             raise CommandError(
@@ -186,7 +195,9 @@ class Command(BaseCommand):
             return
 
         if not targets:
-            self.stdout.write("All requested videos already contain the requested rendition.")
+            self.stdout.write(
+                "All requested videos already contain the requested rendition."
+            )
             if invalid_publics or missing_real_inputs:
                 raise CommandError("Completed with invalid identifiers.")
             return
@@ -255,9 +266,7 @@ class Command(BaseCommand):
                 continue
 
     def _resolution_status(self, real_id: int, resolution: str) -> str:
-        """
-        Return 'missing', 'empty', or 'ok' for the requested rendition.
-        """
+        """Return 'missing', 'empty', or 'ok' for the requested rendition."""
         rendition_dir = self._rendition_dir(real_id, resolution)
         manifest_path = rendition_dir / "index.m3u8"
         if not manifest_path.exists():

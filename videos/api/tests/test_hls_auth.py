@@ -38,7 +38,7 @@ def _create_video(owner: Video | None = None) -> Video:
 
 
 def _issue_access_cookie(user_id: int) -> str:
-    now = datetime.datetime.now(datetime.timezone.utc)
+    now = datetime.datetime.now(datetime.UTC)
     payload = {
         "user_id": user_id,
         "type": "access",
@@ -66,7 +66,7 @@ def published_video(tmp_path, settings):
     )
 
     base = Path(tmp_path) / "hls" / str(video.id) / resolution
-    base.mkdir(parents=True)
+    base.mkdir(parents=True, exist_ok=True)
     (base / "index.m3u8").write_text(manifest_body, encoding="utf-8")
     (base / "000.ts").write_bytes(b"TS")
 
@@ -143,5 +143,6 @@ def test_manifest_json_accept_returns_404_payload(published_video):
     )
 
     assert response.status_code == 404
-    assert response.json() == {"errors": {"non_field_errors": ["Video manifest not found."]}}
-
+    assert response.json() == {
+        "errors": {"non_field_errors": ["Video manifest not found."]}
+    }

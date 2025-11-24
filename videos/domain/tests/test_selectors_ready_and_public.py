@@ -53,7 +53,9 @@ def other_user():
     )
 
 
-def _write_manifest(media_root: Path, video_id: int, content: str, res: str = "480p") -> Path:
+def _write_manifest(
+    media_root: Path, video_id: int, content: str, res: str = "480p"
+) -> Path:
     manifest_path = media_root / "hls" / str(video_id) / res / "index.m3u8"
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_path.write_text(content, encoding="utf-8")
@@ -83,12 +85,20 @@ def test_filter_queryset_ready_and_list_ready(media_root):
         is_published=True,
     )
 
-    _write_manifest(media_root, ready.id, """#EXTM3U
+    _write_manifest(
+        media_root,
+        ready.id,
+        """#EXTM3U
 #EXTINF:10,
 000.ts
-""")
-    _write_manifest(media_root, stub.id, """#EXTM3U
-""")
+""",
+    )
+    _write_manifest(
+        media_root,
+        stub.id,
+        """#EXTM3U
+""",
+    )
 
     qs = Video.objects.filter(is_published=True)
 
@@ -133,29 +143,53 @@ def test_list_for_user_with_public_ids_ready_filter(media_root, owner_user, othe
         category=VideoCategory.DRAMA,
         is_published=False,
     )
-    Video.objects.filter(pk=draft_ready.pk).update(created_at=base - timedelta(seconds=20))
+    Video.objects.filter(pk=draft_ready.pk).update(
+        created_at=base - timedelta(seconds=20)
+    )
 
-    _write_manifest(media_root, ready_pub.id, """#EXTM3U
+    _write_manifest(
+        media_root,
+        ready_pub.id,
+        """#EXTM3U
 #EXTINF:10,
 000.ts
-""")
-    _write_manifest(media_root, draft_ready.id, """#EXTM3U
+""",
+    )
+    _write_manifest(
+        media_root,
+        draft_ready.id,
+        """#EXTM3U
 #EXTINF:8,
 001.ts
-""")
-    _write_manifest(media_root, stub_pub.id, """#EXTM3U
-""")
+""",
+    )
+    _write_manifest(
+        media_root,
+        stub_pub.id,
+        """#EXTM3U
+""",
+    )
 
-    ready_only = selectors_public.list_for_user_with_public_ids(owner_user, ready_only=True)
+    ready_only = selectors_public.list_for_user_with_public_ids(
+        owner_user, ready_only=True
+    )
     ready_titles = [item["title"] for item in ready_only]
     assert ready_titles == ["Ready Published", "Draft Ready"]
     assert [item["id"] for item in ready_only] == [1, 2]
 
-    all_items = selectors_public.list_for_user_with_public_ids(owner_user, ready_only=False)
-    assert [item["title"] for item in all_items] == ["Ready Published", "Stub Published", "Draft Ready"]
+    all_items = selectors_public.list_for_user_with_public_ids(
+        owner_user, ready_only=False
+    )
+    assert [item["title"] for item in all_items] == [
+        "Ready Published",
+        "Stub Published",
+        "Draft Ready",
+    ]
     assert [item["id"] for item in all_items] == [1, 2, 3]
 
-    viewer_items = selectors_public.list_for_user_with_public_ids(other_user, ready_only=True)
+    viewer_items = selectors_public.list_for_user_with_public_ids(
+        other_user, ready_only=True
+    )
     assert [item["title"] for item in viewer_items] == ["Ready Published"]
 
 
@@ -222,7 +256,9 @@ def test_get_video_stream_uses_database_manifest(media_root, owner_user):
 segment.ts
 """
     VideoStream.objects.create(video=video, resolution="480p", manifest=manifest_text)
-    result = selectors.get_video_stream(movie_id=video.id, resolution="480p", user=owner_user)
+    result = selectors.get_video_stream(
+        movie_id=video.id, resolution="480p", user=owner_user
+    )
     assert "segment.ts" in result.manifest
 
 
@@ -236,7 +272,9 @@ def test_get_video_stream_missing_stream_raises(media_root, owner_user):
         is_published=True,
     )
     with pytest.raises(VideoStream.DoesNotExist):
-        selectors.get_video_stream(movie_id=video.id, resolution="480p", user=owner_user)
+        selectors.get_video_stream(
+            movie_id=video.id, resolution="480p", user=owner_user
+        )
 
 
 def test_video_visible_to_user_checks_staff(media_root, owner_user, staff_user):

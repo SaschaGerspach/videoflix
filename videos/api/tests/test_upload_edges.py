@@ -139,7 +139,9 @@ def test_upload_permission_denied(upload_env):
     outsider = _create_user("outsider@example.com")
     video = _create_video(owner)
     file = SimpleUploadedFile("clip.mp4", b"data", content_type="video/mp4")
-    request = factory.post(f"/api/video/{video.id}/upload/", {"file": file}, format="multipart")
+    request = factory.post(
+        f"/api/video/{video.id}/upload/", {"file": file}, format="multipart"
+    )
     force_authenticate(request, user=outsider)
     response = VideoUploadView.as_view()(request, video_id=video.id)
     assert response.status_code == 403
@@ -150,8 +152,12 @@ def test_upload_file_too_large(upload_env, settings):
     owner = _create_user("owner2@example.com")
     video = _create_video(owner)
     settings.VIDEO_UPLOAD_MAX_BYTES = 1
-    file = SimpleUploadedFile("clip.mp4", b"more than one byte", content_type="video/mp4")
-    request = factory.post(f"/api/video/{video.id}/upload/", {"file": file}, format="multipart")
+    file = SimpleUploadedFile(
+        "clip.mp4", b"more than one byte", content_type="video/mp4"
+    )
+    request = factory.post(
+        f"/api/video/{video.id}/upload/", {"file": file}, format="multipart"
+    )
     force_authenticate(request, user=owner)
     response = VideoUploadView.as_view()(request, video_id=video.id)
     assert response.status_code == 400
@@ -166,7 +172,9 @@ def test_upload_skips_enqueue_when_complete(upload_env):
     upload_env.manifest_state[(video.id, "1080p")] = True
 
     file = SimpleUploadedFile("clip.mp4", b"content", content_type="video/mp4")
-    request = factory.post(f"/api/video/{video.id}/upload/", {"file": file}, format="multipart")
+    request = factory.post(
+        f"/api/video/{video.id}/upload/", {"file": file}, format="multipart"
+    )
     force_authenticate(request, user=owner)
     response = VideoUploadView.as_view()(request, video_id=video.id)
     assert response.status_code == 201
@@ -180,7 +188,9 @@ def test_upload_respects_transcode_lock(upload_env):
     upload_env.lock_state["locked"] = True
 
     file = SimpleUploadedFile("clip.mp4", b"content", content_type="video/mp4")
-    request = factory.post(f"/api/video/{video.id}/upload/", {"file": file}, format="multipart")
+    request = factory.post(
+        f"/api/video/{video.id}/upload/", {"file": file}, format="multipart"
+    )
     force_authenticate(request, user=owner)
     response = VideoUploadView.as_view()(request, video_id=video.id)
     assert response.status_code == 201
@@ -206,7 +216,9 @@ def test_upload_handles_transcode_error(upload_env, monkeypatch):
     monkeypatch.setattr(transcode_services, "enqueue_transcode", fail_enqueue)
 
     file = SimpleUploadedFile("clip.mp4", b"content", content_type="video/mp4")
-    request = factory.post(f"/api/video/{video.id}/upload/", {"file": file}, format="multipart")
+    request = factory.post(
+        f"/api/video/{video.id}/upload/", {"file": file}, format="multipart"
+    )
     force_authenticate(request, user=owner)
     response = VideoUploadView.as_view()(request, video_id=video.id)
     assert response.status_code == 422
@@ -227,7 +239,9 @@ def test_upload_handles_validation_error(upload_env, monkeypatch):
     monkeypatch.setattr(transcode_services, "enqueue_transcode", fail_enqueue)
 
     file = SimpleUploadedFile("clip.mp4", b"content", content_type="video/mp4")
-    request = factory.post(f"/api/video/{video.id}/upload/", {"file": file}, format="multipart")
+    request = factory.post(
+        f"/api/video/{video.id}/upload/", {"file": file}, format="multipart"
+    )
     force_authenticate(request, user=owner)
     response = VideoUploadView.as_view()(request, video_id=video.id)
     assert response.status_code == 400
@@ -240,7 +254,9 @@ def test_upload_successful_enqueue(upload_env):
     video = _create_video(owner)
 
     file = SimpleUploadedFile("clip.mp4", b"content", content_type="video/mp4")
-    request = factory.post(f"/api/video/{video.id}/upload/", {"file": file}, format="multipart")
+    request = factory.post(
+        f"/api/video/{video.id}/upload/", {"file": file}, format="multipart"
+    )
     force_authenticate(request, user=owner)
     response = VideoUploadView.as_view()(request, video_id=video.id)
     assert response.status_code == 201

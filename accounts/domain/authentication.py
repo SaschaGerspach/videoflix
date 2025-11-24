@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional, Tuple
 
 import jwt
 from django.conf import settings
@@ -18,7 +17,7 @@ class CookieJWTAuthentication(BaseAuthentication):
     www_authenticate_realm = "api"
     logger = logging.getLogger(__name__)
 
-    def authenticate(self, request) -> Optional[Tuple[AbstractBaseUser, None]]:
+    def authenticate(self, request) -> tuple[AbstractBaseUser, None] | None:
         # Force DRF to always call this method, regardless of Accept header
         if not hasattr(request, "COOKIES"):
             base_request = getattr(request, "_request", None)

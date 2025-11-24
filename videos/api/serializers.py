@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 from jobs.domain.services import ALLOWED_TRANSCODE_PROFILES
-from videos.domain import thumbs as thumb_utils
+from videos.domain import hls as hls_utils, thumbs as thumb_utils
 from videos.domain.models import Video
 
 
@@ -25,12 +25,28 @@ class VideoSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Video
-        fields = ["id", "created_at", "title", "description", "thumbnail_url", "category"]
+        fields = [
+            "id",
+            "created_at",
+            "title",
+            "description",
+            "thumbnail_url",
+            "category",
+        ]
         read_only_fields = fields
 
     def get_thumbnail_url(self, obj: Video) -> str:
         request = self.context.get("request")
-        return thumb_utils.get_thumbnail_url(request, obj.id) or ""
+        return thumb_utils.get_thumbnail_url(obj, request=request) or ""
+
+    def get_available_renditions(self, obj: Video) -> list[str]:
+        return hls_utils.get_available_resolutions(obj.id)
+
+    def get_bitrate_kbps(self, obj: Video) -> int | None:
+        video_bitrate = obj.video_bitrate_kbps or 0
+        audio_bitrate = obj.audio_bitrate_kbps or 0
+        total = video_bitrate + audio_bitrate
+        return total or None
 
 
 class VideoSegmentContentRequestSerializer(serializers.Serializer):
@@ -45,9 +61,7 @@ class VideoSegmentContentRequestSerializer(serializers.Serializer):
     segment = serializers.RegexField(
         regex=r"^(?:\d{1,6}|[A-Za-z0-9_-]{1,64})\.ts$",
         max_length=255,
-        error_messages={
-            "invalid": "Invalid segment name. Use e.g. 000.ts."
-        },
+        error_messages={"invalid": "Invalid segment name. Use e.g. 000.ts."},
     )
 
 
@@ -78,7 +92,10 @@ class VideoUploadSerializer(serializers.Serializer):
     def validate_file(self, file):
         content_type = getattr(file, "content_type", "")
         name = getattr(file, "name", "")
-        if content_type and content_type.lower() not in {"video/mp4", "application/octet-stream"}:
+        if content_type and content_type.lower() not in {
+            "video/mp4",
+            "application/octet-stream",
+        }:
             raise serializers.ValidationError("Only MP4 uploads are supported.")
         if not name.lower().endswith(".mp4"):
             raise serializers.ValidationError("Filename must end with .mp4.")

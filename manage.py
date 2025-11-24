@@ -1,14 +1,15 @@
 #!/usr/bin/env python
 """Django's command-line utility for administrative tasks."""
+
 import os
 import sys
 from pathlib import Path
 
-# ---- Auto-ENV-Auswahl für lokale Dev & CI ----
-# Lädt .env.ci wenn Pytest läuft,
-# sonst .env.dev (default), und .env.prod wenn ENV=prod gesetzt ist.
+# ---- Auto-ENV selection for local dev & CI ----
+# Load .env.ci when pytest runs, otherwise prefer .env.dev and fall back to .env.prod when ENV=prod.
 try:
     from dotenv import load_dotenv  # type: ignore
+
     BASE_DIR = Path(__file__).resolve().parent
     # Pytest-Run?
     if "PYTEST_CURRENT_TEST" in os.environ and (BASE_DIR / ".env.ci").exists():
@@ -20,15 +21,14 @@ try:
         elif (BASE_DIR / ".env.dev").exists():
             load_dotenv(BASE_DIR / ".env.dev")
 except Exception:
-    # Fallback: Wenn python-dotenv nicht installiert ist,
-    # läuft alles mit System-Umgebungsvariablen weiter.
+    # Fallback: keep going with system environment variables when python-dotenv is unavailable.
     pass
-# ---- Ende Auto-ENV-Auswahl ----
+# ---- End auto-ENV selection ----
 
 
 def main():
     """Run administrative tasks."""
-    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "core.settings")
     try:
         from django.core.management import execute_from_command_line
     except ImportError as exc:
@@ -40,5 +40,5 @@ def main():
     execute_from_command_line(sys.argv)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

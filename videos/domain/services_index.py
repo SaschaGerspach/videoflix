@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Dict, List, Tuple
 
 from django.core.cache import cache
 from django.db import IntegrityError, transaction
@@ -15,7 +14,7 @@ logger = logging.getLogger(__name__)
 _CACHE_KEY_TEMPLATE = "videos:index-rendition:{real}:{res}"
 
 
-def fs_rendition_exists(real_id: int, resolution: str) -> Tuple[bool, Path, List[Path]]:
+def fs_rendition_exists(real_id: int, resolution: str) -> tuple[bool, Path, list[Path]]:
     """
     Return a tuple describing the manifest and segment files for a rendition.
 
@@ -38,11 +37,7 @@ def fs_rendition_exists(real_id: int, resolution: str) -> Tuple[bool, Path, List
 
     try:
         base_dir = manifest_path.parent
-        segments = [
-            path
-            for path in sorted(base_dir.glob("*.ts"))
-            if path.is_file()
-        ]
+        segments = [path for path in sorted(base_dir.glob("*.ts")) if path.is_file()]
     except OSError:
         segments = []
 
@@ -57,13 +52,15 @@ def _should_run(real_id: int, resolution: str, timeout: int = 10) -> bool:
         return True
 
 
-def index_existing_rendition(real_id: int, resolution: str) -> Dict[str, object]:
+def index_existing_rendition(real_id: int, resolution: str) -> dict[str, object]:
     """
     Persist manifest text and segment binaries from the file system into the database.
     """
     outcome = {"created": False, "updated": False, "segments": 0, "bytes": 0}
 
-    manifest_found, manifest_path, segment_paths = fs_rendition_exists(real_id, resolution)
+    manifest_found, manifest_path, segment_paths = fs_rendition_exists(
+        real_id, resolution
+    )
     if not manifest_found:
         return outcome
 
@@ -72,7 +69,9 @@ def index_existing_rendition(real_id: int, resolution: str) -> Dict[str, object]
         return outcome
 
     if not Video.objects.filter(pk=real_id).exists():
-        logger.warning("Skipping HLS index: video %s missing for %s", real_id, resolution)
+        logger.warning(
+            "Skipping HLS index: video %s missing for %s", real_id, resolution
+        )
         return outcome
 
     try:
@@ -81,17 +80,23 @@ def index_existing_rendition(real_id: int, resolution: str) -> Dict[str, object]
         return outcome
 
     if is_stub_manifest(manifest_bytes):
-        logger.debug("Skipping HLS index for stub manifest video_id=%s resolution=%s", real_id, resolution)
+        logger.debug(
+            "Skipping HLS index for stub manifest video_id=%s resolution=%s",
+            real_id,
+            resolution,
+        )
         return outcome
 
     manifest_text = manifest_bytes.decode("utf-8", "ignore")
 
     if not segment_paths:
         logger.warning(
-            "Manifest present but no segments for video_id=%s resolution=%s", real_id, resolution
+            "Manifest present but no segments for video_id=%s resolution=%s",
+            real_id,
+            resolution,
         )
 
-    payloads: Dict[str, bytes] = {}
+    payloads: dict[str, bytes] = {}
     total_bytes = 0
     for path in segment_paths:
         try:
@@ -129,7 +134,9 @@ def index_existing_rendition(real_id: int, resolution: str) -> Dict[str, object]
                 for name, payload in payloads.items():
                     segment = existing.get(name)
                     if segment is None:
-                        VideoSegment.objects.create(stream=stream, name=name, content=payload)
+                        VideoSegment.objects.create(
+                            stream=stream, name=name, content=payload
+                        )
                         updated = True
                         continue
                     current_bytes = bytes(segment.content or b"")
@@ -141,7 +148,9 @@ def index_existing_rendition(real_id: int, resolution: str) -> Dict[str, object]
             outcome["updated"] = updated
     except IntegrityError:
         logger.warning(
-            "Integrity error while indexing video_id=%s resolution=%s", real_id, resolution
+            "Integrity error while indexing video_id=%s resolution=%s",
+            real_id,
+            resolution,
         )
         return outcome
 
@@ -157,7 +166,9 @@ def index_existing_rendition(real_id: int, resolution: str) -> Dict[str, object]
         )
     else:
         logger.debug(
-            "HLS rendition already indexed video_id=%s resolution=%s", real_id, resolution
+            "HLS rendition already indexed video_id=%s resolution=%s",
+            real_id,
+            resolution,
         )
 
     return outcome

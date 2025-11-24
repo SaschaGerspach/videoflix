@@ -3,7 +3,10 @@ from __future__ import annotations
 import json
 from io import StringIO
 
+import pytest
 from django.core.management import call_command
+
+pytestmark = pytest.mark.django_db
 
 
 def test_diagnose_backend_cli_json():
@@ -12,8 +15,10 @@ def test_diagnose_backend_cli_json():
         call_command("diagnose_backend", json=True, stdout=output)
     except SystemExit as exc:
         assert exc.code in (0, 2)
-    data = json.loads(output.getvalue())
-    assert "summary" in data
+    payload = json.loads(output.getvalue() or "{}")
+    assert "scan" in payload
+    if "scan" in payload:
+        assert "videos" in payload["scan"]
 
 
 def test_heal_hls_index_cli_write_and_rebuild(tmp_path, settings):
@@ -29,5 +34,7 @@ def test_heal_hls_index_cli_write_and_rebuild(tmp_path, settings):
         )
     except SystemExit as exc:
         assert exc.code in (0, 2)
-    data = json.loads(output.getvalue())
-    assert "videos" in data
+    payload = json.loads(output.getvalue() or "{}")
+    assert "heal" in payload
+    if "heal" in payload:
+        assert "fixed" in payload["heal"]

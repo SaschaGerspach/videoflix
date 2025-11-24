@@ -19,7 +19,9 @@ from videos.domain.choices import VideoCategory
 from videos.domain.models import Video
 
 
-def write_manifest(media_root: Path, real_id: int, resolution: str, lines: list[str]) -> Path:
+def write_manifest(
+    media_root: Path, real_id: int, resolution: str, lines: list[str]
+) -> Path:
     rendition_dir = media_root / "hls" / str(real_id) / resolution
     rendition_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = rendition_dir / "index.m3u8"
@@ -30,7 +32,13 @@ def write_manifest(media_root: Path, real_id: int, resolution: str, lines: list[
     return manifest_path
 
 
-def write_segment(media_root: Path, real_id: int, resolution: str, name: str = "000.ts", payload: bytes | None = None) -> Path:
+def write_segment(
+    media_root: Path,
+    real_id: int,
+    resolution: str,
+    name: str = "000.ts",
+    payload: bytes | None = None,
+) -> Path:
     rendition_dir = media_root / "hls" / str(real_id) / resolution
     rendition_dir.mkdir(parents=True, exist_ok=True)
     segment_path = rendition_dir / name
@@ -38,7 +46,9 @@ def write_segment(media_root: Path, real_id: int, resolution: str, name: str = "
     return segment_path
 
 
-def write_source_file(media_root: Path, real_id: int, payload: bytes | None = None) -> Path:
+def write_source_file(
+    media_root: Path, real_id: int, payload: bytes | None = None
+) -> Path:
     sources_dir = media_root / "sources"
     sources_dir.mkdir(parents=True, exist_ok=True)
     source_path = sources_dir / f"{real_id}.mp4"
@@ -64,7 +74,9 @@ def test_check_renditions_reports_ok_and_missing(tmp_path, settings):
             category=VideoCategory.DRAMA,
             is_published=True,
         )
-        write_manifest(media_root, ok_video.id, "480p", ["#EXTM3U", "#EXTINF:10,", "000.ts"])
+        write_manifest(
+            media_root, ok_video.id, "480p", ["#EXTM3U", "#EXTINF:10,", "000.ts"]
+        )
         write_segment(media_root, ok_video.id, "480p")
         write_manifest(media_root, missing_video.id, "480p", [])
 
@@ -98,7 +110,9 @@ def test_check_renditions_reports_empty_without_segments(tmp_path, settings):
             category=VideoCategory.DRAMA,
             is_published=True,
         )
-        write_manifest(media_root, video.id, "480p", ["#EXTM3U", "#EXTINF:10,", "000.ts"])
+        write_manifest(
+            media_root, video.id, "480p", ["#EXTM3U", "#EXTINF:10,", "000.ts"]
+        )
 
         stdout = io.StringIO()
         stderr = io.StringIO()
@@ -196,7 +210,9 @@ def test_auto_enqueue_missing_dry_run_and_confirm(tmp_path, monkeypatch):
     )
 
     with override_settings(MEDIA_ROOT=str(media_root)):
-        write_manifest(media_root, ok_video.id, "1080p", ["#EXTM3U", "#EXTINF:5,", "000.ts"])
+        write_manifest(
+            media_root, ok_video.id, "1080p", ["#EXTM3U", "#EXTINF:5,", "000.ts"]
+        )
         write_segment(media_root, ok_video.id, "1080p")
         write_source_file(media_root, missing_video.id)
 

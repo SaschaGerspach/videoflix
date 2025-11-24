@@ -46,7 +46,9 @@ def test_register_sends_activation_email_with_link(api_client: APIClient):
     assert message.subject == "Activate your Videoflix account"
     assert message.to == ["new-activator@example.com"]
 
-    activation_link = next((part for part in message.body.split() if part.startswith("http")), "")
+    activation_link = next(
+        (part for part in message.body.split() if part.startswith("http")), ""
+    )
     assert activation_link, "Activation link missing in email body."
 
     frontend_domain = "https://frontend.videoflix.local".rstrip("/")

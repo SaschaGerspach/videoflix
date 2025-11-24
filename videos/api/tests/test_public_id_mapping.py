@@ -1,7 +1,6 @@
 from pathlib import Path
 
 import pytest
-from django.conf import settings
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
@@ -64,8 +63,10 @@ def test_manifest_resolves_public_id_serves_file(
     )
 
     hls_path = Path(tmp_path) / "hls" / str(real_id) / resolution
-    hls_path.mkdir(parents=True)
-    (hls_path / "index.m3u8").write_text("#EXTM3U\n#EXTINF:10,\nsegment.ts\n", encoding="utf-8")
+    hls_path.mkdir(parents=True, exist_ok=True)
+    (hls_path / "index.m3u8").write_text(
+        "#EXTM3U\n#EXTINF:10,\nsegment.ts\n", encoding="utf-8"
+    )
     (hls_path / "segment.ts").write_bytes(b"TS")
 
     resolver = lambda public_id: real_id  # noqa: E731
@@ -100,7 +101,7 @@ def test_segment_resolves_public_id_serves_file(
     )
 
     hls_path = Path(tmp_path) / "hls" / str(real_id) / resolution
-    hls_path.mkdir(parents=True)
+    hls_path.mkdir(parents=True, exist_ok=True)
     (hls_path / "000.ts").write_bytes(b"TS")
 
     resolver = lambda public_id: real_id  # noqa: E731
@@ -155,7 +156,7 @@ def test_manifest_requires_authentication(settings, tmp_path, monkeypatch):
     )
 
     hls_path = Path(tmp_path) / "hls" / str(real_id) / resolution
-    hls_path.mkdir(parents=True)
+    hls_path.mkdir(parents=True, exist_ok=True)
     (hls_path / "index.m3u8").write_text("#EXTM3U\n", encoding="utf-8")
 
     resolver = lambda public_id: real_id  # noqa: E731
@@ -193,7 +194,7 @@ def test_segment_requires_authentication(settings, tmp_path, monkeypatch):
     )
 
     hls_path = Path(tmp_path) / "hls" / str(real_id) / resolution
-    hls_path.mkdir(parents=True)
+    hls_path.mkdir(parents=True, exist_ok=True)
     (hls_path / "000.ts").write_bytes(b"TS")
 
     resolver = lambda public_id: real_id  # noqa: E731

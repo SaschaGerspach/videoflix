@@ -47,7 +47,9 @@ def test_ensure_accept_header_block_invalid():
     view = _DummyView()
     request = SimpleNamespace(META={"HTTP_ACCEPT": "text/plain"})
     with pytest.raises(NotAcceptable):
-        view._ensure_accept_header(request, expected_media_type="application/vnd.apple.mpegurl")
+        view._ensure_accept_header(
+            request, expected_media_type="application/vnd.apple.mpegurl"
+        )
 
 
 def test_accept_header_matches_allowed_type():
@@ -88,7 +90,9 @@ def test_user_can_access_owner_authenticated():
     request = SimpleNamespace(
         META={},
         method="GET",
-        user=SimpleNamespace(is_authenticated=True, id=1, is_staff=False, is_superuser=False),
+        user=SimpleNamespace(
+            is_authenticated=True, id=1, is_staff=False, is_superuser=False
+        ),
     )
     video = SimpleNamespace(owner_id=1, is_published=False)
     assert _user_can_access(request, video) is True

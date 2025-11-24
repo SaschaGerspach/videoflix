@@ -65,20 +65,26 @@ def _create_video(owner) -> Video:
 
 
 def _create_manifest(video_id: int, resolution: str) -> Path:
-    manifest_path = transcode_services.get_transcode_output_dir(video_id, resolution) / "index.m3u8"
+    manifest_path = (
+        transcode_services.get_transcode_output_dir(video_id, resolution) / "index.m3u8"
+    )
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_path.write_text("#EXTM3U\n", encoding="utf-8")
     return manifest_path
 
 
-def test_upload_owner_saves_file_and_queues_missing_profiles(auth_client, user, monkeypatch):
+def test_upload_owner_saves_file_and_queues_missing_profiles(
+    auth_client, user, monkeypatch
+):
     video = _create_video(user)
     _create_manifest(video.id, "360p")
 
     enqueue_mock = MagicMock()
     monkeypatch.setattr(transcode_services, "enqueue_transcode", enqueue_mock)
 
-    upload_file = SimpleUploadedFile("video.mp4", b"dummy-content", content_type="video/mp4")
+    upload_file = SimpleUploadedFile(
+        "video.mp4", b"dummy-content", content_type="video/mp4"
+    )
 
     response = auth_client.post(
         upload_url(video.id),
@@ -93,9 +99,14 @@ def test_upload_owner_saves_file_and_queues_missing_profiles(auth_client, user, 
     assert source_path.exists()
     assert source_path.read_bytes() == b"dummy-content"
 
-    enqueue_mock.assert_called_once_with(video.id, target_resolutions=["480p", "720p", "1080p"])
+    enqueue_mock.assert_called_once_with(
+        video.id, target_resolutions=["480p", "720p", "1080p"]
+    )
 
-def test_upload_with_existing_renditions_skips_transcode(auth_client, user, monkeypatch):
+
+def test_upload_with_existing_renditions_skips_transcode(
+    auth_client, user, monkeypatch
+):
     video = _create_video(user)
     for resolution in transcode_services.ALLOWED_TRANSCODE_PROFILES:
         _create_manifest(video.id, resolution)
@@ -166,13 +177,17 @@ def test_upload_rejected_for_non_owner(auth_client, user):
 
     assert response.status_code == status.HTTP_403_FORBIDDEN
     assert response.json() == {
-        "errors": {"non_field_errors": ["You do not have permission to modify this video."]}
+        "errors": {
+            "non_field_errors": ["You do not have permission to modify this video."]
+        }
     }
 
 
 def test_upload_rejects_non_mp4(auth_client, user):
     video = _create_video(user)
-    upload_file = SimpleUploadedFile("video.avi", b"content", content_type="video/x-msvideo")
+    upload_file = SimpleUploadedFile(
+        "video.avi", b"content", content_type="video/x-msvideo"
+    )
 
     response = auth_client.post(
         upload_url(video.id),
@@ -188,7 +203,9 @@ def test_upload_rejects_non_mp4(auth_client, user):
 def test_upload_rejects_large_file(auth_client, user, settings):
     settings.VIDEO_UPLOAD_MAX_BYTES = 10
     video = _create_video(user)
-    upload_file = SimpleUploadedFile("video.mp4", b"0123456789ABC", content_type="video/mp4")
+    upload_file = SimpleUploadedFile(
+        "video.mp4", b"0123456789ABC", content_type="video/mp4"
+    )
 
     response = auth_client.post(
         upload_url(video.id),

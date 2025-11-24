@@ -1,0 +1,37 @@
+# Top-level settings (Ruff looks at these directly in .ruff.toml)
+line-length = 100
+target-version = "py311"
+extend-exclude = ["**/migrations/**", "build", "dist", ".venv", ".tox", ".pytest_cache"]
+
+[lint]
+select = [
+  "E", "F", "W",
+  "B", "A", "C90",
+  "UP",
+  "SIM",
+  "PT",
+  "PIE",
+  "T20",
+  "TID",
+  "ERA",
+  "RUF",
+  "D",
+]
+
+# Globally ignore:
+# - E501 (line too long),
+# - D*  (all docstring checks),
+# - PT017 (pytest style rule that was nervig)
+ignore = [
+  "E501",
+  "D",
+  "PT017",
+]
+
+[format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+
+[lint.per-file-ignores]
+"**/migrations/*.py" = ["ALL"]

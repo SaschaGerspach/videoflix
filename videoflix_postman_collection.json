@@ -1,0 +1,1243 @@
+﻿{
+  "info": {
+    "_postman_id": "ae39eb5c-d804-423d-910d-5dcd803a1890",
+    "name": "Videoflix Backend API",
+    "description": "Complete Postman collection covering Videoflix backend endpoints (accounts, videos, debug, docs).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Accounts / Auth",
+      "item": [
+        {
+          "name": "Register / Login / Logout / Refresh / Activate",
+          "item": [
+            {
+              "name": "Register Account",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-CSRFToken",
+                    "value": "{{csrf_token}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/register/",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "register"
+                  ]
+                },
+                "description": "Creates an inactive Videoflix account and triggers the activation email.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"demo@example.com\",\n  \"password\": \"Admin123!\",\n  \"confirmed_password\": \"Admin123!\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const allowedStatus = [201, 400];",
+                      "pm.test(\"Status 201 or 400\", () => allowedStatus.includes(pm.response.code));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Login (Cookie Auth)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-CSRFToken",
+                    "value": "{{csrf_token}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/login/",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "login"
+                  ]
+                },
+                "description": "Logs in with email/password and stores JWT access + refresh cookies. Postman will keep cookies in the jar.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"demo@example.com\",\n  \"password\": \"Admin123!\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const allowedStatus = [200, 400, 403];",
+                      "pm.test(\"Status 200/400/403\", () => allowedStatus.includes(pm.response.code));",
+                      "const csrfCookie = pm.cookies.get('csrftoken');",
+                      "if (csrfCookie) { pm.collectionVariables.set('csrf_token', csrfCookie); }"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Logout",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-CSRFToken",
+                    "value": "{{csrf_token}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/logout/",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "logout"
+                  ]
+                },
+                "description": "Revokes the refresh token cookie and clears auth cookies.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const allowedStatus = [200, 400];",
+                      "pm.test(\"Status 200 or 400\", () => allowedStatus.includes(pm.response.code));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Refresh Access Token",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-CSRFToken",
+                    "value": "{{csrf_token}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/token/refresh/",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "token",
+                    "refresh"
+                  ]
+                },
+                "description": "Uses the refresh_token cookie to issue a new access token cookie.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const allowedStatus = [200, 400, 401];",
+                      "pm.test(\"Status 200/400/401\", () => allowedStatus.includes(pm.response.code));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Activate Account (POST)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-CSRFToken",
+                    "value": "{{csrf_token}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/activate/{{uid}}/{{token}}/",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "activate",
+                    "{{uid}}",
+                    "{{token}}"
+                  ]
+                },
+                "description": "Activates a user via JSON payload (same logic as the HTML link).",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"uidb64\": \"{{uid}}\",\n  \"token\": \"{{token}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const allowedStatus = [200, 400];",
+                      "pm.test(\"Status 200 or 400\", () => allowedStatus.includes(pm.response.code));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Activate Account (GET HTML)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/activate/{{uid}}/{{token}}/",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "activate",
+                    "{{uid}}",
+                    "{{token}}"
+                  ]
+                },
+                "description": "Simulates the emailed activation link and renders the confirmation HTML page."
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const allowedStatus = [200, 400];",
+                      "pm.test(\"Status 200 or 400\", () => allowedStatus.includes(pm.response.code));"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Password Reset / Password Confirm",
+          "item": [
+            {
+              "name": "Password Reset Request",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-CSRFToken",
+                    "value": "{{csrf_token}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/password_reset/",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "password_reset"
+                  ]
+                },
+                "description": "Starts the password reset email flow for an existing user.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"demo@example.com\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const allowedStatus = [200, 400];",
+                      "pm.test(\"Status 200 or 400\", () => allowedStatus.includes(pm.response.code));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Password Confirm",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "X-CSRFToken",
+                    "value": "{{csrf_token}}",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/password_confirm/{{uid}}/{{token}}/",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "password_confirm",
+                    "{{uid}}",
+                    "{{token}}"
+                  ]
+                },
+                "description": "Confirms the reset token and sets a new password.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"new_password\": \"Admin123!\",\n  \"confirm_password\": \"Admin123!\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const allowedStatus = [200, 400];",
+                      "pm.test(\"Status 200 or 400\", () => allowedStatus.includes(pm.response.code));"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Videos (CRUD)",
+      "item": [
+        {
+          "name": "List Videos (/video/)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/video/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "video"
+              ],
+              "query": [
+                {
+                  "key": "ready_only",
+                  "value": "true",
+                  "description": "True to restrict to ready videos"
+                },
+                {
+                  "key": "order",
+                  "value": "-updated_at",
+                  "description": "Updated_at descending"
+                }
+              ]
+            },
+            "description": "Lists videos for the authenticated user. ready_only=true restricts to fully transcoded videos."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const allowedStatus = [200, 401];",
+                  "pm.test(\"Status 200 or 401\", () => allowedStatus.includes(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Videos (root alias)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/",
+              "host": [
+                "{{base_url}}"
+              ]
+            },
+            "description": "Same video list view, available at /api/."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const allowedStatus = [200, 401];",
+                  "pm.test(\"Status 200 or 401\", () => allowedStatus.includes(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Video Upload / Transcode / Segment / Playback",
+      "item": [
+        {
+          "name": "Upload Video Source",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-CSRFToken",
+                "value": "{{csrf_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/video/{{video_id}}/upload/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "video",
+                "{{video_id}}",
+                "upload"
+              ]
+            },
+            "description": "Uploads a video file for the owner/admin and enqueues transcodes for missing renditions.",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "{{upload_file_path}}",
+                  "description": "MP4/MOV source video"
+                }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const allowedStatus = [201, 400, 401, 403, 404];",
+                  "pm.test(\"Status 201/400/401/403/404\", () => allowedStatus.includes(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Manual Transcode Request",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-CSRFToken",
+                "value": "{{csrf_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/video/{{video_id}}/transcode/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "video",
+                "{{video_id}}",
+                "transcode"
+              ]
+            },
+            "description": "Queues a manual transcode job for the selected video and resolutions.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"resolutions\": [\n    \"480p\",\n    \"720p\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const allowedStatus = [202, 400, 401, 403, 404, 409];",
+                  "pm.test(\"Status 202/400/401/403/404/409\", () => allowedStatus.includes(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Playback Manifest (generic)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/video/{{video_id}}/{{resolution}}/index.m3u8",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "video",
+                "{{video_id}}",
+                "{{resolution}}",
+                "index.m3u8"
+              ]
+            },
+            "description": "Serves the authenticated master playlist for the requested resolution."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const allowedStatus = [200, 403, 404];",
+                  "pm.test(\"Status 200/403/404\", () => allowedStatus.includes(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Segment Content (generic)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/video/{{video_id}}/{{resolution}}/{{segment_name}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "video",
+                "{{video_id}}",
+                "{{resolution}}",
+                "{{segment_name}}"
+              ]
+            },
+            "description": "Streams a binary HLS segment if the caller is authorized."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const allowedStatus = [200, 403, 404];",
+                  "pm.test(\"Status 200/403/404\", () => allowedStatus.includes(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "HLS (480p/720p/1080p)",
+          "item": [
+            {
+              "name": "Manifest 480p",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/video/{{video_id}}/480p/index.m3u8",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "video",
+                    "{{video_id}}",
+                    "480p",
+                    "index.m3u8"
+                  ]
+                },
+                "description": "Checks availability of the 480p master playlist."
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const allowedStatus = [200, 403, 404];",
+                      "pm.test(\"Status 200/403/404\", () => allowedStatus.includes(pm.response.code));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Manifest 720p",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/video/{{video_id}}/720p/index.m3u8",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "video",
+                    "{{video_id}}",
+                    "720p",
+                    "index.m3u8"
+                  ]
+                },
+                "description": "Checks availability of the 720p master playlist."
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const allowedStatus = [200, 403, 404];",
+                      "pm.test(\"Status 200/403/404\", () => allowedStatus.includes(pm.response.code));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Manifest 1080p",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/video/{{video_id}}/1080p/index.m3u8",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "video",
+                    "{{video_id}}",
+                    "1080p",
+                    "index.m3u8"
+                  ]
+                },
+                "description": "Checks availability of the 1080p master playlist."
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const allowedStatus = [200, 403, 404];",
+                      "pm.test(\"Status 200/403/404\", () => allowedStatus.includes(pm.response.code));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Segment 480p",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/video/{{video_id}}/480p/{{segment_name}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "video",
+                    "{{video_id}}",
+                    "480p",
+                    "{{segment_name}}"
+                  ]
+                },
+                "description": "Retrieves a sample 480p segment (TS)."
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const allowedStatus = [200, 403, 404];",
+                      "pm.test(\"Status 200/403/404\", () => allowedStatus.includes(pm.response.code));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Segment 720p",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/video/{{video_id}}/720p/{{segment_name}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "video",
+                    "{{video_id}}",
+                    "720p",
+                    "{{segment_name}}"
+                  ]
+                },
+                "description": "Retrieves a sample 720p segment (TS)."
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const allowedStatus = [200, 403, 404];",
+                      "pm.test(\"Status 200/403/404\", () => allowedStatus.includes(pm.response.code));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Segment 1080p",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/video/{{video_id}}/1080p/{{segment_name}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "video",
+                    "{{video_id}}",
+                    "1080p",
+                    "{{segment_name}}"
+                  ]
+                },
+                "description": "Retrieves a sample 1080p segment (TS)."
+              },
+              "response": [],
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const allowedStatus = [200, 403, 404];",
+                      "pm.test(\"Status 200/403/404\", () => allowedStatus.includes(pm.response.code));"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Debug / Health",
+      "item": [
+        {
+          "name": "API Health Probe",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{origin}}/healthz/",
+              "host": [
+                "{{origin}}"
+              ],
+              "path": [
+                "healthz"
+              ]
+            },
+            "description": "Simple JSON health endpoint exposed at /healthz/."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const allowedStatus = [200];",
+                  "pm.test(\"Status 200\", () => allowedStatus.includes(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Video Rendition Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/video/{{video_id}}/health",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "video",
+                "{{video_id}}",
+                "health"
+              ]
+            },
+            "description": "Public rendition statistics for a video (404 if no renditions)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const allowedStatus = [200, 404];",
+                  "pm.test(\"Status 200 or 404\", () => allowedStatus.includes(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Debug Auth State",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/_debug/auth",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "_debug",
+                "auth"
+              ]
+            },
+            "description": "DEBUG-only helper that reports cookie/auth state."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const allowedStatus = [200, 404];",
+                  "pm.test(\"Status 200 or 404\", () => allowedStatus.includes(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "HLS Manifest Debug",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/_debug/hls/{{video_id}}/{{resolution}}/manifest",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "_debug",
+                "hls",
+                "{{video_id}}",
+                "{{resolution}}",
+                "manifest"
+              ]
+            },
+            "description": "DEBUG-only manifest file metadata for a given video/resolution."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const allowedStatus = [200, 404];",
+                  "pm.test(\"Status 200 or 404\", () => allowedStatus.includes(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Allowed Renditions Debug",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/_debug/renditions",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "_debug",
+                "renditions"
+              ]
+            },
+            "description": "Lists allowed renditions when DEBUG=True."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const allowedStatus = [200, 404];",
+                  "pm.test(\"Status 200 or 404\", () => allowedStatus.includes(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Thumbs Debug",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/_debug/thumbs/{{video_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "_debug",
+                "thumbs",
+                "{{video_id}}"
+              ]
+            },
+            "description": "DEBUG-only thumbnail metadata for a video."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const allowedStatus = [200, 404];",
+                  "pm.test(\"Status 200 or 404\", () => allowedStatus.includes(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Jobs / Queue Health",
+      "item": [
+        {
+          "name": "Queue Health Probe",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/_debug/queue",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "_debug",
+                "queue"
+              ]
+            },
+            "description": "Reports status of the RQ transcode queue when DEBUG=True."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const allowedStatus = [200, 404];",
+                  "pm.test(\"Status 200 or 404\", () => allowedStatus.includes(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Media Delivery",
+      "item": [
+        {
+          "name": "OpenAPI Schema",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/schema/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "schema"
+              ]
+            },
+            "description": "Downloads the generated OpenAPI schema JSON."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const allowedStatus = [200];",
+                  "pm.test(\"Status 200\", () => allowedStatus.includes(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Swagger UI",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "text/html"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/docs/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "docs"
+              ]
+            },
+            "description": "Interactive Swagger UI for the API (HTML)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const allowedStatus = [200];",
+                  "pm.test(\"Status 200\", () => allowedStatus.includes(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "ReDoc UI",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "text/html"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/redoc/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "redoc"
+              ]
+            },
+            "description": "Static ReDoc visualization of the OpenAPI schema."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const allowedStatus = [200];",
+                  "pm.test(\"Status 200\", () => allowedStatus.includes(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "event": [],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://127.0.0.1:8000/api"
+    },
+    {
+      "key": "origin",
+      "value": "http://127.0.0.1:8000"
+    },
+    {
+      "key": "csrf_token",
+      "value": ""
+    },
+    {
+      "key": "video_id",
+      "value": "1"
+    },
+    {
+      "key": "resolution",
+      "value": "720p"
+    },
+    {
+      "key": "uid",
+      "value": "MQ"
+    },
+    {
+      "key": "token",
+      "value": "activation-or-reset-token"
+    },
+    {
+      "key": "segment_name",
+      "value": "segment000.ts"
+    },
+    {
+      "key": "upload_file_path",
+      "value": "C:/path/to/sample.mp4"
+    }
+  ],
+  "auth": {
+    "type": "noauth"
+  }
+}

@@ -1,5 +1,5 @@
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 
 import jwt
 import pytest
@@ -18,6 +18,7 @@ pytestmark = pytest.mark.django_db
 EXPECTED_PATH = getattr(settings, "SESSION_COOKIE_PATH", "/")
 EXPECTED_DOMAIN = getattr(settings, "SESSION_COOKIE_DOMAIN", None)
 EXPECTED_SAMESITE = getattr(settings, "SESSION_COOKIE_SAMESITE", "Lax")
+
 
 @pytest.fixture
 def api_client() -> APIClient:
@@ -57,8 +58,10 @@ def _login(client: APIClient, email: str, password: str):
 
 
 def _make_refresh_token(user_id: int, *, exp: datetime | None = None) -> str:
-    issued_at = datetime.now(timezone.utc)
-    expires_at = exp or (issued_at + timedelta(seconds=settings.JWT_REFRESH_LIFETIME_SECONDS))
+    issued_at = datetime.now(UTC)
+    expires_at = exp or (
+        issued_at + timedelta(seconds=settings.JWT_REFRESH_LIFETIME_SECONDS)
+    )
     payload = {
         "user_id": user_id,
         "username": f"user-{user_id}",
@@ -122,9 +125,7 @@ def test_logout_invalid_refresh_token_returns_400(api_client: APIClient):
     response = api_client.post(reverse("logout"), {}, format="json")
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
-    assert response.json() == {
-        "errors": {"refresh_token": ["Invalid refresh token."]}
-    }
+    assert response.json() == {"errors": {"refresh_token": ["Invalid refresh token."]}}
 
 
 def test_logout_twice_returns_400_token_already_invalidated(
@@ -168,9 +169,7 @@ def test_logout_refresh_token_for_unknown_user_returns_400(api_client: APIClient
     response = api_client.post(reverse("logout"), {}, format="json")
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
-    assert response.json() == {
-        "errors": {"refresh_token": ["Invalid refresh token."]}
-    }
+    assert response.json() == {"errors": {"refresh_token": ["Invalid refresh token."]}}
 
 
 def test_logout_invalid_json_payload_returns_400(api_client: APIClient, create_user):

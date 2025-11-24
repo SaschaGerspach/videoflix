@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 import subprocess
 from pathlib import Path
+from typing import Any
+from urllib.parse import urlsplit
 
 from django.conf import settings
 
@@ -12,9 +14,7 @@ logger = logging.getLogger("videoflix")
 
 
 def get_thumbnail_path(video_id: int, size: str = "default") -> Path:
-    """
-    Return the filesystem path for a generated thumbnail.
-    """
+    """Return the filesystem path for a generated thumbnail."""
     return Path(settings.MEDIA_ROOT) / "thumbs" / str(video_id) / f"{size}.jpg"
 
 
@@ -26,9 +26,7 @@ def ensure_thumbnail(
     width: int | None = None,
     height: int | None = None,
 ) -> Path | None:
-    """
-    Use ffmpeg to materialise a thumbnail for the given video.
-    """
+    """Use ffmpeg to materialise a thumbnail for the given video."""
     source_path = job_services.get_video_source_path(video_id)
     if not source_path.exists():
         logger.info("Thumbnail skipped (source missing): video_id=%s", video_id)
@@ -77,23 +75,48 @@ def ensure_thumbnail(
     return output_path
 
 
-def get_thumbnail_url(request, video_id: int, size: str = "default") -> str:
-    """
-    Return an absolute URL for the thumbnail when present, otherwise an empty string.
-    """
+def get_thumbnail_url(video, *, request=None, size: str = "default") -> str:
+    """Return an absolute URL for the thumbnail when present, otherwise an empty string."""
+    video_id = _resolve_video_id(video)
+    if video_id is None:
+        return ""
+
     thumb_path = get_thumbnail_path(video_id, size=size)
     if not thumb_path.exists():
         return ""
 
     relative_url = _thumbnail_relative_url(video_id, size=size)
+    return build_media_url(relative_url, request=request)
+
+
+def build_media_url(path: str | Path | None, *, request=None) -> str:
+    """Build an absolute media URL depending on the active environment context."""
+    if path is None:
+        return ""
+
+    relative = str(path).strip()
+    if not relative:
+        return ""
+
+    if relative.startswith(("http://", "https://")):
+        return relative
+
+    normalized = _ensure_leading_slash(relative)
 
     if request is not None:
         try:
-            return request.build_absolute_uri(relative_url)
-        except Exception:  # pragma: no cover - defensive fallback
+            return request.build_absolute_uri(normalized)
+        except Exception:
             pass
 
-    return _absolute_public_url(relative_url)
+    frontend_origin = _frontend_origin()
+    if frontend_origin:
+        return f"{frontend_origin}{normalized}"
+
+    if getattr(settings, "DEBUG", False):
+        return f"http://127.0.0.1:8000{normalized}"
+
+    return normalized
 
 
 def _thumbnail_relative_url(video_id: int, size: str = "default") -> str:
@@ -108,8 +131,38 @@ def _thumbnail_relative_url(video_id: int, size: str = "default") -> str:
     return relative
 
 
-def _absolute_public_url(relative_url: str) -> str:
-    base = getattr(settings, "PUBLIC_MEDIA_BASE", "http://127.0.0.1:8000") or ""
-    if relative_url.startswith(("http://", "https://")):
-        return relative_url
-    return f"{base.rstrip('/')}{relative_url}"
+def _ensure_leading_slash(value: str) -> str:
+    if value.startswith("/"):
+        return value
+    return "/" + value.lstrip("/")
+
+
+def _frontend_origin() -> str:
+    raw = getattr(settings, "FRONTEND_BASE_URL", "") or ""
+    if not raw:
+        return ""
+    parts = urlsplit(str(raw))
+    if parts.scheme and parts.netloc:
+        return f"{parts.scheme}://{parts.netloc}"
+    return raw.rstrip("/")
+
+
+def _resolve_video_id(video: Any) -> int | None:
+    if video is None:
+        return None
+    if isinstance(video, int):
+        return video
+    if hasattr(video, "pk"):
+        try:
+            return int(video.pk)
+        except (TypeError, ValueError):
+            return None
+    if hasattr(video, "id"):
+        try:
+            return int(video.id)
+        except (TypeError, ValueError):
+            return None
+    try:
+        return int(video)
+    except (TypeError, ValueError):
+        return None

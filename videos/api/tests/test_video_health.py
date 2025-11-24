@@ -50,9 +50,11 @@ def test_video_health_reports_segment_stats(settings, tmp_path):
     for resolution, sizes in rendition_specs.items():
         rendition_dir = base_dir / resolution
         rendition_dir.mkdir(parents=True, exist_ok=True)
-        manifest_text = "#EXTM3U\n" + "\n".join(
-            f"#EXTINF:10,\n{idx:03d}.ts" for idx in range(len(sizes))
-        ) + "\n"
+        manifest_text = (
+            "#EXTM3U\n"
+            + "\n".join(f"#EXTINF:10,\n{idx:03d}.ts" for idx in range(len(sizes)))
+            + "\n"
+        )
         (rendition_dir / "index.m3u8").write_text(manifest_text, encoding="utf-8")
         for idx, size in enumerate(sizes):
             (rendition_dir / f"{idx:03d}.ts").write_bytes(b"x" * size)

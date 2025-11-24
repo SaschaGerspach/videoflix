@@ -43,7 +43,9 @@ def create_user():
     DEFAULT_FROM_EMAIL="noreply@videoflix.local",
     FRONTEND_DOMAIN="http://localhost:3000",
 )
-def test_password_reset_sends_email_for_existing_user(api_client: APIClient, create_user):
+def test_password_reset_sends_email_for_existing_user(
+    api_client: APIClient, create_user
+):
     user = create_user("reset@example.com")
     mail.outbox.clear()
 
@@ -61,8 +63,7 @@ def test_password_reset_sends_email_for_existing_user(api_client: APIClient, cre
     message = mail.outbox[0]
     assert "Reset your Videoflix password" in message.subject
     assert user.email in message.to
-    link = next((part for part in message.body.split()
-                if part.startswith("http")), "")
+    link = next((part for part in message.body.split() if part.startswith("http")), "")
     parsed = urlparse(link)
     params = parse_qs(parsed.query)
     uidb64 = params["uidb64"][0]
@@ -81,8 +82,9 @@ def test_password_reset_returns_400_for_unknown_email(api_client: APIClient):
     )
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
-    assert response.json() == {"errors": {
-        "email": ["User with this email does not exist."]}}
+    assert response.json() == {
+        "errors": {"email": ["User with this email does not exist."]}
+    }
     assert mail.outbox == []
 
 
@@ -103,8 +105,7 @@ def test_password_reset_invalid_json_returns_400(api_client: APIClient, create_u
     )
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
-    assert "JSON parse error" in response.json(
-    )["errors"]["non_field_errors"][0]
+    assert "JSON parse error" in response.json()["errors"]["non_field_errors"][0]
 
 
 @override_settings(
@@ -135,13 +136,15 @@ def test_password_reset_multiple_requests_send_email_each_time(
 
 def test_password_reset_accepts_case_insensitive_email(api_client, create_user):
     create_user("case@example.com")
-    r = api_client.post(reverse("password_reset"), {
-                        "email": "Case@Example.com"}, format="json")
+    r = api_client.post(
+        reverse("password_reset"), {"email": "Case@Example.com"}, format="json"
+    )
     assert r.status_code == status.HTTP_200_OK
 
 
 def test_password_reset_allows_inactive_user(api_client, create_user):
     create_user("inactive@example.com", is_active=False)
-    r = api_client.post(reverse("password_reset"), {
-                        "email": "inactive@example.com"}, format="json")
+    r = api_client.post(
+        reverse("password_reset"), {"email": "inactive@example.com"}, format="json"
+    )
     assert r.status_code == status.HTTP_200_OK

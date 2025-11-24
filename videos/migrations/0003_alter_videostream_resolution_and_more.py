@@ -6,17 +6,19 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('videos', '0002_videostream'),
+        ("videos", "0002_videostream"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='videostream',
-            name='resolution',
+            model_name="videostream",
+            name="resolution",
             field=models.CharField(db_index=True, max_length=16),
         ),
         migrations.AddIndex(
-            model_name='videostream',
-            index=models.Index(fields=['video', 'resolution'], name='videos_vide_video_i_301bda_idx'),
+            model_name="videostream",
+            index=models.Index(
+                fields=["video", "resolution"], name="videos_vide_video_i_301bda_idx"
+            ),
         ),
     ]

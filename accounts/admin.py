@@ -15,8 +15,14 @@ except admin.sites.NotRegistered:
 class UserAdmin(BaseUserAdmin):
     # Spalten in der Liste
     list_display = (
-        "id", "email", "username", "is_active", "is_staff",
-        "is_superuser", "last_login", "date_joined",
+        "id",
+        "email",
+        "username",
+        "is_active",
+        "is_staff",
+        "is_superuser",
+        "last_login",
+        "date_joined",
     )
     list_display_links = ("id", "email")
     list_editable = ("is_active",)  # direkt in der Liste toggeln

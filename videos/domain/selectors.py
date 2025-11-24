@@ -121,10 +121,14 @@ def get_video_stream(*, movie_id: int, resolution: str, user) -> StreamResult:
     raise VideoStream.DoesNotExist
 
 
-def get_video_segment(*, movie_id: int, resolution: str, segment: str, user) -> SegmentResult:
+def get_video_segment(
+    *, movie_id: int, resolution: str, segment: str, user
+) -> SegmentResult:
     """Return video segment binary content for the given video stream."""
     try:
-        video_segment = VideoSegment.objects.select_related("stream", "stream__video").get(
+        video_segment = VideoSegment.objects.select_related(
+            "stream", "stream__video"
+        ).get(
             stream__video_id=movie_id,
             stream__resolution=resolution,
             name=segment,

@@ -21,7 +21,9 @@ def transcode_env(monkeypatch, tmp_path, settings):
     from jobs.domain import services as transcode_services
 
     settings.MEDIA_ROOT = tmp_path.as_posix()
-    monkeypatch.setattr(transcode_module.VideoTranscodeView, "throttle_classes", [], raising=False)
+    monkeypatch.setattr(
+        transcode_module.VideoTranscodeView, "throttle_classes", [], raising=False
+    )
     monkeypatch.setattr(
         transcode_services,
         "ALLOWED_TRANSCODE_PROFILES",
@@ -36,7 +38,9 @@ def transcode_env(monkeypatch, tmp_path, settings):
 
     monkeypatch.setattr(transcode_services, "enqueue_transcode", enqueue)
     monkeypatch.setattr(transcode_module, "is_transcode_locked", lambda video_id: False)
-    monkeypatch.setattr(transcode_module, "resolve_public_id", lambda public_id: public_id)
+    monkeypatch.setattr(
+        transcode_module, "resolve_public_id", lambda public_id: public_id
+    )
 
     return SimpleNamespace(calls=calls, transcode_services=transcode_services)
 
@@ -133,7 +137,9 @@ def test_transcode_transcode_error_returns_status(transcode_env, monkeypatch):
     def fail_enqueue(video_id, target_resolutions):
         raise Boom()
 
-    monkeypatch.setattr(transcode_env.transcode_services, "enqueue_transcode", fail_enqueue)
+    monkeypatch.setattr(
+        transcode_env.transcode_services, "enqueue_transcode", fail_enqueue
+    )
     factory = APIRequestFactory()
     request = factory.post(f"/api/video/{video.id}/transcode/", {})
     force_authenticate(request, user=owner)
@@ -149,7 +155,9 @@ def test_transcode_validation_error_returns_400(transcode_env, monkeypatch):
     def fail_enqueue(video_id, target_resolutions):
         raise ValidationError({"resolutions": ["invalid"]})
 
-    monkeypatch.setattr(transcode_env.transcode_services, "enqueue_transcode", fail_enqueue)
+    monkeypatch.setattr(
+        transcode_env.transcode_services, "enqueue_transcode", fail_enqueue
+    )
     factory = APIRequestFactory()
     request = factory.post(f"/api/video/{video.id}/transcode/", {})
     force_authenticate(request, user=owner)

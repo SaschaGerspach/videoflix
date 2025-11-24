@@ -94,8 +94,10 @@ def test_activate_fails_with_invalid_uid(api_client: APIClient):
 
 def test_activate_fails_when_user_already_active(api_client):
     user = get_user_model().objects.create_user(
-        username="already@example.com", email="already@example.com",
-        password="x", is_active=True
+        username="already@example.com",
+        email="already@example.com",
+        password="x",
+        is_active=True,
     )
     token = default_token_generator.make_token(user)
     uidb64 = _encode_uid(user.pk)
@@ -112,7 +114,11 @@ def test_activate_fails_when_user_already_active(api_client):
 def test_activate_token_cannot_be_reused(api_client):
     U = get_user_model()
     user = U.objects.create_user(
-        username="once@example.com", email="once@example.com", password="x", is_active=False)
+        username="once@example.com",
+        email="once@example.com",
+        password="x",
+        is_active=False,
+    )
     token = default_token_generator.make_token(user)
     uidb64 = _encode_uid(user.pk)
 
@@ -141,8 +147,13 @@ def test_activate_fails_when_user_not_found(api_client):
 @pytest.fixture
 def make_user():
     def _make(**kw):
-        defaults = dict(username="u@example.com",
-                        email="u@example.com", password="x", is_active=False)
+        defaults = dict(
+            username="u@example.com",
+            email="u@example.com",
+            password="x",
+            is_active=False,
+        )
         defaults.update(kw)
         return get_user_model().objects.create_user(**defaults)
+
     return _make

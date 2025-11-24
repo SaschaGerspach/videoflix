@@ -1,5 +1,5 @@
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 
 import jwt
 import pytest
@@ -11,9 +11,11 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from accounts.domain.services import (_USER_REFRESH_REVOKE_KEY,
-                                      is_refresh_token_blacklisted,
-                                      revoke_all_refresh_tokens_for_user)
+from accounts.domain.services import (
+    _USER_REFRESH_REVOKE_KEY,
+    is_refresh_token_blacklisted,
+    revoke_all_refresh_tokens_for_user,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -68,9 +70,9 @@ def _make_refresh_token(
     iat: int | None = None,
 ) -> str:
     if iat is not None:
-        issued_at_dt = datetime.fromtimestamp(iat, timezone.utc)
+        issued_at_dt = datetime.fromtimestamp(iat, UTC)
     else:
-        issued_at_dt = datetime.now(timezone.utc)
+        issued_at_dt = datetime.now(UTC)
     expires_at_dt = exp or (
         issued_at_dt + timedelta(seconds=settings.JWT_REFRESH_LIFETIME_SECONDS)
     )
@@ -91,7 +93,9 @@ def _cookie_has_flag(morsel, flag: str) -> bool:
     return flag in morsel.OutputString()
 
 
-def test_token_refresh_success_sets_new_access_cookie(api_client: APIClient, create_user):
+def test_token_refresh_success_sets_new_access_cookie(
+    api_client: APIClient, create_user
+):
     user = create_user("user@example.com")
     _login(api_client, user.email, "securepassword123")
 
@@ -103,8 +107,7 @@ def test_token_refresh_success_sets_new_access_cookie(api_client: APIClient, cre
     assert body["access"]
     assert response.cookies["access_token"].value == body["access"]
     access_cookie = response.cookies["access_token"]
-    assert int(access_cookie["max-age"]
-               ) == settings.JWT_ACCESS_LIFETIME_SECONDS
+    assert int(access_cookie["max-age"]) == settings.JWT_ACCESS_LIFETIME_SECONDS
     assert access_cookie["path"] == EXPECTED_PATH
     assert (access_cookie["domain"] or None) == EXPECTED_DOMAIN
     assert access_cookie["samesite"] == EXPECTED_SAMESITE
@@ -117,8 +120,9 @@ def test_token_refresh_missing_cookie_returns_400(api_client: APIClient):
     response = api_client.post(reverse("token_refresh"), {}, format="json")
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
-    assert response.json() == {"errors": {"refresh_token": [
-        "Refresh token cookie missing."]}}
+    assert response.json() == {
+        "errors": {"refresh_token": ["Refresh token cookie missing."]}
+    }
 
 
 def test_token_refresh_invalid_token_returns_401(api_client: APIClient):
@@ -127,11 +131,12 @@ def test_token_refresh_invalid_token_returns_401(api_client: APIClient):
     response = api_client.post(reverse("token_refresh"), {}, format="json")
 
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
-    assert response.json() == {"errors": {
-        "refresh_token": ["Invalid refresh token."]}}
+    assert response.json() == {"errors": {"refresh_token": ["Invalid refresh token."]}}
 
 
-def test_token_refresh_blacklisted_token_returns_401(api_client: APIClient, create_user):
+def test_token_refresh_blacklisted_token_returns_401(
+    api_client: APIClient, create_user
+):
     user = create_user("user@example.com")
     _login(api_client, user.email, "securepassword123")
     refresh_token_value = api_client.cookies["refresh_token"].value
@@ -144,8 +149,9 @@ def test_token_refresh_blacklisted_token_returns_401(api_client: APIClient, crea
     response = api_client.post(reverse("token_refresh"), {}, format="json")
 
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
-    assert response.json() == {"errors": {"refresh_token": [
-        "Invalid or expired refresh token."]}}
+    assert response.json() == {
+        "errors": {"refresh_token": ["Invalid or expired refresh token."]}
+    }
 
 
 def test_token_refresh_unknown_user_returns_401(api_client: APIClient):
@@ -155,8 +161,7 @@ def test_token_refresh_unknown_user_returns_401(api_client: APIClient):
     response = api_client.post(reverse("token_refresh"), {}, format="json")
 
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
-    assert response.json() == {"errors": {
-        "refresh_token": ["Invalid refresh token."]}}
+    assert response.json() == {"errors": {"refresh_token": ["Invalid refresh token."]}}
 
 
 def test_token_refresh_invalid_json_returns_400(api_client: APIClient, create_user):
@@ -170,29 +175,33 @@ def test_token_refresh_invalid_json_returns_400(api_client: APIClient, create_us
     )
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
-    assert "JSON parse error" in response.json(
-    )["errors"]["non_field_errors"][0]
+    assert "JSON parse error" in response.json()["errors"]["non_field_errors"][0]
 
 
-def test_token_refresh_allows_repeated_use_until_logout(api_client: APIClient, create_user):
+def test_token_refresh_allows_repeated_use_until_logout(
+    api_client: APIClient, create_user
+):
     user = create_user("user@example.com")
     _login(api_client, user.email, "securepassword123")
     refresh_token_value = api_client.cookies["refresh_token"].value
 
-    response_first = api_client.post(
-        reverse("token_refresh"), {}, format="json")
+    response_first = api_client.post(reverse("token_refresh"), {}, format="json")
     assert response_first.status_code == status.HTTP_200_OK
 
     api_client.cookies["refresh_token"] = refresh_token_value
-    response_second = api_client.post(
-        reverse("token_refresh"), {}, format="json")
+    response_second = api_client.post(reverse("token_refresh"), {}, format="json")
     assert response_second.status_code == status.HTTP_200_OK
 
-    assert response_first.cookies["access_token"].value != response_second.cookies["access_token"].value
+    assert (
+        response_first.cookies["access_token"].value
+        != response_second.cookies["access_token"].value
+    )
 
 
 @override_settings(SESSION_COOKIE_SECURE=True)
-def test_token_refresh_sets_secure_flag_when_enabled(api_client: APIClient, create_user):
+def test_token_refresh_sets_secure_flag_when_enabled(
+    api_client: APIClient, create_user
+):
     user = create_user("secure@example.com")
     _login(api_client, user.email, "securepassword123")
 
@@ -205,7 +214,9 @@ def test_token_refresh_sets_secure_flag_when_enabled(api_client: APIClient, crea
     assert access_cookie["path"] == EXPECTED_PATH
 
 
-def test_token_refresh_rejects_token_at_revocation_boundary(api_client: APIClient, create_user):
+def test_token_refresh_rejects_token_at_revocation_boundary(
+    api_client: APIClient, create_user
+):
     user = create_user("boundary@example.com")
     revoke_all_refresh_tokens_for_user(user)
     revoke_before = cache.get(_USER_REFRESH_REVOKE_KEY.format(user_id=user.pk))
@@ -218,13 +229,15 @@ def test_token_refresh_rejects_token_at_revocation_boundary(api_client: APIClien
 
     response = api_client.post(reverse("token_refresh"), {}, format="json")
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
-    assert response.json()["errors"] == {"refresh_token": ["Invalid or expired refresh token."]}
+    assert response.json()["errors"] == {
+        "refresh_token": ["Invalid or expired refresh token."]
+    }
 
 
 def test_token_refresh_expired_returns_401(api_client, create_user):
     user = create_user("expired@example.com")
     # abgelaufenes Token bauen
-    past = datetime.now(timezone.utc) - timedelta(seconds=30)
+    past = datetime.now(UTC) - timedelta(seconds=30)
     expired = _make_refresh_token(user.id, exp=past)
     api_client.cookies["refresh_token"] = expired
     r = api_client.post(reverse("token_refresh"), {}, format="json")
@@ -233,9 +246,14 @@ def test_token_refresh_expired_returns_401(api_client, create_user):
 
 def test_token_refresh_wrong_signature_returns_401(api_client, create_user, settings):
     user = create_user("sig@example.com")
-    payload = {"user_id": user.id, "type": "refresh", "jti": secrets.token_urlsafe(8),
-               "iat": datetime.now(timezone.utc),
-               "exp": datetime.now(timezone.utc) + timedelta(seconds=settings.JWT_REFRESH_LIFETIME_SECONDS)}
+    payload = {
+        "user_id": user.id,
+        "type": "refresh",
+        "jti": secrets.token_urlsafe(8),
+        "iat": datetime.now(UTC),
+        "exp": datetime.now(UTC)
+        + timedelta(seconds=settings.JWT_REFRESH_LIFETIME_SECONDS),
+    }
     tampered = jwt.encode(payload, "WRONG_SECRET", algorithm="HS256")
     api_client.cookies["refresh_token"] = tampered
     r = api_client.post(reverse("token_refresh"), {}, format="json")
@@ -254,27 +272,28 @@ def test_token_refresh_does_not_set_refresh_cookie(api_client: APIClient, create
     r = api_client.post(reverse("token_refresh"), {}, format="json")
     assert r.status_code == status.HTTP_200_OK
 
-    # In dieser Response nur access_token setzen, kein refresh_token
+    # This response must only set the access_token cookie
     assert "access_token" in r.cookies
     assert "refresh_token" not in r.cookies
 
-    # Optional: sicherstellen, dass NUR access_token gesetzt wurde
-    # (falls du erwartest, dass sonst kein weiterer Cookie in dieser Response gesetzt wird)
+    # Optional: double-check that no other cookie besides access_token was added
     assert set(r.cookies.keys()) == {"access_token"}
 
 
 @override_settings(SESSION_COOKIE_DOMAIN="dev.local")
-def test_token_refresh_respects_domain_setting_and_logout_mirrors_delete(api_client: APIClient, create_user):
+def test_token_refresh_respects_domain_setting_and_logout_mirrors_delete(
+    api_client: APIClient, create_user
+):
     user = create_user("domain@example.com")
     _login(api_client, user.email, "securepassword123")
 
-    # Refresh setzt access_token mit Domain=dev.local
+    # Refresh must set the access_token cookie with domain dev.local
     r_refresh = api_client.post(reverse("token_refresh"), {}, format="json")
     assert r_refresh.status_code == status.HTTP_200_OK
     access_cookie = r_refresh.cookies["access_token"]
     assert access_cookie["domain"] == "dev.local"
 
-    # Logout löscht mit identischer Domain
+    # Logout deletes cookies with the same domain
     r_logout = api_client.post(reverse("logout"), {}, format="json")
     assert r_logout.status_code == status.HTTP_200_OK
 
@@ -284,7 +303,7 @@ def test_token_refresh_respects_domain_setting_and_logout_mirrors_delete(api_cli
     assert del_access["domain"] == "dev.local"
     assert del_refresh["domain"] == "dev.local"
 
-    # Max-Age kann als str oder int kommen – wir casten robust
+    # Max-Age may be a string or int; coerce explicitly
     def _max_age(m):
         v = m.get("max-age")
         return int(v) if v is not None else None
@@ -292,14 +311,16 @@ def test_token_refresh_respects_domain_setting_and_logout_mirrors_delete(api_cli
     assert _max_age(del_access) == 0
     assert _max_age(del_refresh) == 0
 
-    # Optional robustheitscheck: Expires vorhanden (Browser löscht so oder so)
+    # Optional: verify Expires is included even though browsers already drop the cookie
     assert del_access.get("expires") is not None
     assert del_refresh.get("expires") is not None
 
 
 # 4) SameSite aus Settings variieren (Strict) → Cookie übernimmt Wert
 @override_settings(SESSION_COOKIE_SAMESITE="Strict")
-def test_token_refresh_respects_samesite_setting_strict(api_client: APIClient, create_user):
+def test_token_refresh_respects_samesite_setting_strict(
+    api_client: APIClient, create_user
+):
     user = create_user("samesite@example.com")
     _login(api_client, user.email, "securepassword123")
 
@@ -311,7 +332,9 @@ def test_token_refresh_respects_samesite_setting_strict(api_client: APIClient, c
     # Secure-Flag bleibt unverändert von Samesite-Einstellung (separat getestet)
 
 
-def test_token_refresh_sets_single_set_cookie_for_access_token(api_client: APIClient, create_user):
+def test_token_refresh_sets_single_set_cookie_for_access_token(
+    api_client: APIClient, create_user
+):
     user = create_user("single@example.com")
     _login(api_client, user.email, "securepassword123")
 
@@ -324,7 +347,9 @@ def test_token_refresh_sets_single_set_cookie_for_access_token(api_client: APICl
 
 
 # 6) Claims-Konsistenz: user_id stimmt, exp ungefähr Settings-Lifetime
-def test_token_refresh_emits_access_claims_consistent(api_client: APIClient, create_user, settings):
+def test_token_refresh_emits_access_claims_consistent(
+    api_client: APIClient, create_user, settings
+):
     user = create_user("claims@example.com")
     _login(api_client, user.email, "securepassword123")
 

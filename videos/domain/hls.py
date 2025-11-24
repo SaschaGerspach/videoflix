@@ -1,4 +1,4 @@
-﻿"""Utilities to build optional HLS master playlists."""
+"""Utilities to build optional HLS master playlists."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from jobs.domain.services import ALLOWED_TRANSCODE_PROFILES, TRANSCODE_PROFILE_C
 
 logger = logging.getLogger("videoflix")
 
-HLS_BASE = Path(getattr(settings, "MEDIA_ROOT")) / "hls"
+HLS_BASE = Path(settings.MEDIA_ROOT) / "hls"
 
 
 def hls_dir(video_id: int) -> Path:

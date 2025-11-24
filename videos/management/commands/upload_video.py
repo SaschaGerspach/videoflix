@@ -1,5 +1,8 @@
+"""CLI for ingesting a local video file and scheduling transcodes."""
+
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import shutil
 
@@ -7,11 +10,14 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 
+from videos.domain import services as video_services
 from videos.domain.models import Video, VideoCategory
-from videos.domain.services_autotranscode import schedule_default_transcodes
+from videos.domain.services_autotranscode import enqueue_dynamic_renditions
 
 
 class Command(BaseCommand):
+    """Upload a local file into MEDIA_ROOT and optionally kick off transcodes."""
+
     help = "Upload a local video and trigger background transcoding."
 
     def add_arguments(self, parser):
@@ -48,8 +54,45 @@ class Command(BaseCommand):
             dest="skip_transcode",
             help="Create the video and upload the source without scheduling transcodes.",
         )
+        parser.add_argument(
+            "--json",
+            action="store_true",
+            help="Emit machine-readable JSON instead of human-readable text.",
+        )
 
     def handle(self, *args, **options):
+        """Validate CLI options, transfer the file, and trigger downstream tasks."""
+        as_json = bool(options.get("json"))
+        try:
+            video, payload = self._perform_upload(options)
+        except CommandError as exc:
+            if as_json:
+                self._emit_error_json(str(exc), getattr(exc, "hint", None))
+                raise SystemExit(1)
+            raise
+        except Exception as exc:
+            if as_json:
+                self._emit_error_json(str(exc))
+                raise SystemExit(1)
+            raise
+
+        if as_json:
+            self.stdout.write(json.dumps(payload, ensure_ascii=False))
+            return
+
+        transfer_mode = payload["transfer_mode"]
+        self.stdout.write(f'Video created: id={video.id}, title="{video.title}"')
+        self.stdout.write(f"Source: {payload['target_path']} ({transfer_mode})")
+        if payload["skip_transcode"]:
+            self.stdout.write("Transcode skipped (by flag).")
+        else:
+            rungs = payload["rungs_enqueued"]
+            if rungs:
+                self.stdout.write(f"Transcode queued: {', '.join(rungs)}")
+            else:
+                self.stdout.write("Transcode skipped (no renditions needed).")
+
+    def _perform_upload(self, options: dict) -> tuple[Video, dict]:
         source_path = self._validate_source_path(options["source_path"])
         title = self._determine_title(options.get("title"), source_path)
         category_value = self._normalize_category(options.get("category"))
@@ -57,6 +100,7 @@ class Command(BaseCommand):
         publish = bool(options.get("publish"))
         move_file = bool(options.get("move"))
         skip_transcode = bool(options.get("skip_transcode"))
+        as_json = bool(options.get("json"))
 
         video = None
         target_path: Path | None = None
@@ -80,19 +124,33 @@ class Command(BaseCommand):
             self._cleanup_failed_upload(video, target_path)
             raise CommandError(f"Upload failed: {exc}") from exc
 
-        self.stdout.write(f'Video created: id={video.id}, title="{video.title}"')
-        self.stdout.write(f"Source: {target_path} ({transfer_mode})")
+        video = video_services.ensure_source_metadata(video)
+        queued_rungs: list[str] = []
+        if not skip_transcode:
+            try:
+                queued_rungs, _ = enqueue_dynamic_renditions(video.id)
+            except Exception as exc:
+                raise CommandError(f"Failed to schedule transcodes: {exc}") from exc
 
-        if skip_transcode:
-            self.stdout.write("Transcode skipped (by flag).")
-            return
+        payload = {
+            "ok": True,
+            "video_id": video.id,
+            "copied": transfer_mode == "copied",
+            "moved": transfer_mode == "moved",
+            "transfer_mode": transfer_mode,
+            "target_path": str(target_path) if target_path else "",
+            "rungs_enqueued": queued_rungs,
+            "skip_transcode": skip_transcode,
+            "published": bool(video.is_published),
+            "thumbnail_url": video.thumbnail_url or "",
+        }
+        return video, payload
 
-        try:
-            schedule_default_transcodes(video.id)
-        except Exception as exc:
-            raise CommandError(f"Failed to schedule transcodes: {exc}") from exc
-
-        self.stdout.write("Transcode queued: 480p, 720p")
+    def _emit_error_json(self, message: str, hint: str | None = None) -> None:
+        payload = {"ok": False, "error": message}
+        if hint:
+            payload["hint"] = hint
+        self.stdout.write(json.dumps(payload, ensure_ascii=False))
 
     def _validate_source_path(self, raw_path: str | None) -> Path:
         if not raw_path:
@@ -158,7 +216,9 @@ class Command(BaseCommand):
             raise CommandError(f"Target already exists: {target_path}")
         return target_path
 
-    def _transfer_file(self, source_path: Path, target_path: Path, move_file: bool) -> str:
+    def _transfer_file(
+        self, source_path: Path, target_path: Path, move_file: bool
+    ) -> str:
         try:
             source_real = source_path.resolve(strict=True)
         except FileNotFoundError:
@@ -180,7 +240,9 @@ class Command(BaseCommand):
             raise CommandError(f"Could not copy file: {exc}") from exc
         return "copied"
 
-    def _cleanup_failed_upload(self, video: Video | None, target_path: Path | None) -> None:
+    def _cleanup_failed_upload(
+        self, video: Video | None, target_path: Path | None
+    ) -> None:
         if target_path and target_path.exists():
             try:
                 target_path.unlink()

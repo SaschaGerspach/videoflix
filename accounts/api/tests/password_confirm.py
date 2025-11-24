@@ -52,13 +52,14 @@ def test_password_confirm_success_resets_password(api_client: APIClient, create_
     )
 
     assert response.status_code == status.HTTP_200_OK
-    assert response.json() == {
-        "detail": "Your Password has been successfully reset."}
+    assert response.json() == {"detail": "Your Password has been successfully reset."}
     user.refresh_from_db()
     assert user.check_password(new_password)
 
 
-def test_password_confirm_missing_fields_returns_400(api_client: APIClient, create_user):
+def test_password_confirm_missing_fields_returns_400(
+    api_client: APIClient, create_user
+):
     user = create_user("missing@example.com")
     uidb64, token = _build_confirm_url(user)
 
@@ -74,7 +75,9 @@ def test_password_confirm_missing_fields_returns_400(api_client: APIClient, crea
     assert "confirm_password" in errors
 
 
-def test_password_confirm_mismatched_passwords_returns_400(api_client: APIClient, create_user):
+def test_password_confirm_mismatched_passwords_returns_400(
+    api_client: APIClient, create_user
+):
     user = create_user("mismatch@example.com")
     uidb64, token = _build_confirm_url(user)
 
@@ -94,8 +97,9 @@ def test_password_confirm_invalid_token_returns_400(api_client: APIClient, creat
     uidb64, _ = _build_confirm_url(user)
 
     response = api_client.post(
-        reverse("password_confirm", kwargs={
-                "uidb64": uidb64, "token": "invalid-token"}),
+        reverse(
+            "password_confirm", kwargs={"uidb64": uidb64, "token": "invalid-token"}
+        ),
         {"new_password": "newpass123", "confirm_password": "newpass123"},
         format="json",
     )
@@ -107,8 +111,7 @@ def test_password_confirm_invalid_token_returns_400(api_client: APIClient, creat
 def test_password_confirm_unknown_user_returns_400(api_client: APIClient):
     uidb64 = urlsafe_base64_encode(force_bytes(999999))
     response = api_client.post(
-        reverse("password_confirm", kwargs={
-                "uidb64": uidb64, "token": "any-token"}),
+        reverse("password_confirm", kwargs={"uidb64": uidb64, "token": "any-token"}),
         {"new_password": "newpass123", "confirm_password": "newpass123"},
         format="json",
     )
@@ -120,8 +123,7 @@ def test_password_confirm_unknown_user_returns_400(api_client: APIClient):
 def test_password_confirm_token_cannot_be_reused(api_client: APIClient, create_user):
     user = create_user("reuse@example.com")
     uidb64, token = _build_confirm_url(user)
-    payload = {"new_password": "freshpass123",
-               "confirm_password": "freshpass123"}
+    payload = {"new_password": "freshpass123", "confirm_password": "freshpass123"}
 
     first = api_client.post(
         reverse("password_confirm", kwargs={"uidb64": uidb64, "token": token}),
@@ -150,64 +152,91 @@ def test_password_confirm_invalid_json_returns_400(api_client: APIClient, create
     )
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
-    assert "JSON parse error" in response.json(
-    )["errors"]["non_field_errors"][0]
+    assert "JSON parse error" in response.json()["errors"]["non_field_errors"][0]
 
 
-def test_password_confirm_invalidates_old_password_and_allows_new_login(api_client, create_user):
+def test_password_confirm_invalidates_old_password_and_allows_new_login(
+    api_client, create_user
+):
     user = create_user("flip@example.com", password="oldpw123")
-    uidb64, token = urlsafe_base64_encode(force_bytes(
-        user.pk)), default_token_generator.make_token(user)
+    uidb64, token = (
+        urlsafe_base64_encode(force_bytes(user.pk)),
+        default_token_generator.make_token(user),
+    )
 
     # confirm reset
     payload = {"new_password": "NEWpw!234", "confirm_password": "NEWpw!234"}
-    r = api_client.post(reverse("password_confirm", kwargs={
-                        "uidb64": uidb64, "token": token}), payload, format="json")
+    r = api_client.post(
+        reverse("password_confirm", kwargs={"uidb64": uidb64, "token": token}),
+        payload,
+        format="json",
+    )
     assert r.status_code == status.HTTP_200_OK
 
-    # login mit altem Passwort schlägt fehl
+    # login with the previous password must fail
     r_old = api_client.post(
-        reverse("login"), {"email": user.email, "password": "oldpw123"}, format="json")
+        reverse("login"), {"email": user.email, "password": "oldpw123"}, format="json"
+    )
     assert r_old.status_code == status.HTTP_400_BAD_REQUEST
 
-    # login mit neuem Passwort klappt
-    r_new = api_client.post(reverse("login"), {
-                            "email": user.email, "password": "NEWpw!234"}, format="json")
+    # login with the new password works
+    r_new = api_client.post(
+        reverse("login"), {"email": user.email, "password": "NEWpw!234"}, format="json"
+    )
     assert r_new.status_code == status.HTTP_200_OK
 
 
 def test_password_reset_rejects_get_method_returns_405(api_client):
-    assert api_client.get(reverse("password_reset")
-                          ).status_code == status.HTTP_405_METHOD_NOT_ALLOWED
+    assert (
+        api_client.get(reverse("password_reset")).status_code
+        == status.HTTP_405_METHOD_NOT_ALLOWED
+    )
 
 
 def test_password_confirm_rejects_get_method_returns_405(api_client, create_user):
     user = create_user("getblock@example.com")
     uidb64 = urlsafe_base64_encode(force_bytes(user.pk))
     token = default_token_generator.make_token(user)
-    assert api_client.get(reverse("password_confirm", kwargs={
-                          "uidb64": uidb64, "token": token})).status_code == status.HTTP_405_METHOD_NOT_ALLOWED
+    assert (
+        api_client.get(
+            reverse("password_confirm", kwargs={"uidb64": uidb64, "token": token})
+        ).status_code
+        == status.HTTP_405_METHOD_NOT_ALLOWED
+    )
 
 
 def test_password_reset_accepts_case_insensitive_email(api_client, create_user):
     create_user("case@example.com")
-    r = api_client.post(reverse("password_reset"), {
-                        "email": "Case@Example.com"}, format="json")
+    r = api_client.post(
+        reverse("password_reset"), {"email": "Case@Example.com"}, format="json"
+    )
     assert r.status_code == status.HTTP_200_OK
 
 
 def test_password_confirm_revokes_existing_refresh_tokens(api_client, create_user):
     user = create_user("revoke@example.com", password="oldpw123")
     # Login, damit Refresh-Cookie existiert
-    assert api_client.post(reverse("login"), {
-                           "email": user.email, "password": "oldpw123"}, format="json").status_code == status.HTTP_200_OK
+    assert (
+        api_client.post(
+            reverse("login"),
+            {"email": user.email, "password": "oldpw123"},
+            format="json",
+        ).status_code
+        == status.HTTP_200_OK
+    )
 
     # Password confirm
     uidb64 = urlsafe_base64_encode(force_bytes(user.pk))
     token = default_token_generator.make_token(user)
     payload = {"new_password": "NEWpw!234", "confirm_password": "NEWpw!234"}
-    assert api_client.post(reverse("password_confirm", kwargs={
-                           "uidb64": uidb64, "token": token}), payload, format="json").status_code == status.HTTP_200_OK
+    assert (
+        api_client.post(
+            reverse("password_confirm", kwargs={"uidb64": uidb64, "token": token}),
+            payload,
+            format="json",
+        ).status_code
+        == status.HTTP_200_OK
+    )
 
     # Refresh sollte nun scheitern (Blacklist-Policy)
     r_refresh = api_client.post(reverse("token_refresh"), {}, format="json")

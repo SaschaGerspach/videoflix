@@ -22,7 +22,9 @@ def _make_video():
     )
 
 
-def _write_manifest(settings, video_id: int, resolution: str, segments: dict[str, bytes]) -> None:
+def _write_manifest(
+    settings, video_id: int, resolution: str, segments: dict[str, bytes]
+) -> None:
     manifest_path = find_manifest_path(video_id, resolution)
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     lines = ["#EXTM3U"]
@@ -41,7 +43,9 @@ def test_fs_rendition_exists_handles_missing_media_root(settings, tmp_path):
     assert segments == []
 
 
-def test_index_existing_rendition_creates_stream_and_segments(settings, tmp_path, monkeypatch):
+def test_index_existing_rendition_creates_stream_and_segments(
+    settings, tmp_path, monkeypatch
+):
     settings.MEDIA_ROOT = tmp_path.as_posix()
     video = _make_video()
     _write_manifest(settings, video.pk, "720p", {"000.ts": b"a", "001.ts": b"b"})
@@ -69,7 +73,9 @@ def test_index_existing_rendition_skips_stub(settings, tmp_path, monkeypatch):
     assert VideoStream.objects.filter(video=video, resolution="480p").exists() is False
 
 
-def test_index_existing_rendition_deduplicates_existing_segments(settings, tmp_path, monkeypatch):
+def test_index_existing_rendition_deduplicates_existing_segments(
+    settings, tmp_path, monkeypatch
+):
     settings.MEDIA_ROOT = tmp_path.as_posix()
     video = _make_video()
     _write_manifest(settings, video.pk, "1080p", {"000.ts": b"first"})
@@ -88,7 +94,9 @@ def test_index_existing_rendition_deduplicates_existing_segments(settings, tmp_p
     assert bytes(segment.content) == b"second"
 
 
-def test_index_existing_rendition_skips_when_cache_blocks(settings, tmp_path, monkeypatch):
+def test_index_existing_rendition_skips_when_cache_blocks(
+    settings, tmp_path, monkeypatch
+):
     settings.MEDIA_ROOT = tmp_path.as_posix()
     video = _make_video()
     _write_manifest(settings, video.pk, "360p", {"000.ts": b"x"})
@@ -145,7 +153,9 @@ def test_index_existing_rendition_returns_default_when_media_empty(settings, tmp
     assert VideoStream.objects.filter(video=video, resolution="720p").exists() is False
 
 
-def test_index_existing_rendition_ignores_duplicate_directories(settings, tmp_path, monkeypatch):
+def test_index_existing_rendition_ignores_duplicate_directories(
+    settings, tmp_path, monkeypatch
+):
     settings.MEDIA_ROOT = tmp_path.as_posix()
     video = _make_video()
     manifest_path = find_manifest_path(video.pk, "480p")
@@ -163,7 +173,9 @@ def test_index_existing_rendition_ignores_duplicate_directories(settings, tmp_pa
     assert VideoStream.objects.filter(video=video, resolution="480p").count() == 1
 
 
-def test_index_existing_rendition_repeated_run_is_stable(settings, tmp_path, monkeypatch):
+def test_index_existing_rendition_repeated_run_is_stable(
+    settings, tmp_path, monkeypatch
+):
     settings.MEDIA_ROOT = tmp_path.as_posix()
     video = _make_video()
     _write_manifest(settings, video.pk, "360p", {"000.ts": b"stable"})

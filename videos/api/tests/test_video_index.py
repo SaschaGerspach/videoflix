@@ -171,13 +171,17 @@ def test_index_excludes_unpublished_videos_for_other_users():
 def test_stream_allows_access_to_published_of_other_user():
     owner = create_user("owner")
     video = create_video(owner, is_published=True)
-    stream = video.streams.create(resolution="720p", manifest=manifest_with_segments("000.ts"))
+    stream = video.streams.create(
+        resolution="720p", manifest=manifest_with_segments("000.ts")
+    )
     stream.segments.create(name="000.ts", content=b"published")
 
     viewer = create_user("viewer")
     client = auth_client_for(viewer)
 
-    manifest_response = client.get(reverse("video-segment", kwargs={"movie_id": video.id, "resolution": "720p"}))
+    manifest_response = client.get(
+        reverse("video-segment", kwargs={"movie_id": video.id, "resolution": "720p"})
+    )
     assert manifest_response.status_code == status.HTTP_200_OK
 
     segment_response = client.get(
@@ -190,15 +194,21 @@ def test_stream_allows_access_to_published_of_other_user():
 def test_stream_denies_access_to_unpublished_of_other_user():
     owner = create_user("owner")
     video = create_video(owner, is_published=False)
-    stream = video.streams.create(resolution="720p", manifest=manifest_with_segments("000.ts"))
+    stream = video.streams.create(
+        resolution="720p", manifest=manifest_with_segments("000.ts")
+    )
     stream.segments.create(name="000.ts", content=b"draft")
 
     other_user = create_user("other")
     client = auth_client_for(other_user)
 
-    manifest_response = client.get(reverse("video-segment", kwargs={"movie_id": video.id, "resolution": "720p"}))
+    manifest_response = client.get(
+        reverse("video-segment", kwargs={"movie_id": video.id, "resolution": "720p"})
+    )
     manifest_payload = assert_json_error(manifest_response, status.HTTP_404_NOT_FOUND)
-    assert manifest_payload["errors"]["non_field_errors"] == ["Video manifest not found."]
+    assert manifest_payload["errors"]["non_field_errors"] == [
+        "Video manifest not found."
+    ]
 
     segment_response = client.get(
         segment_url(video.id, "720p", "000.ts"),
@@ -211,12 +221,16 @@ def test_stream_denies_access_to_unpublished_of_other_user():
 def test_stream_owner_can_access_unpublished_own_video():
     owner = create_user("owner")
     video = create_video(owner, is_published=False)
-    stream = video.streams.create(resolution="720p", manifest=manifest_with_segments("000.ts"))
+    stream = video.streams.create(
+        resolution="720p", manifest=manifest_with_segments("000.ts")
+    )
     stream.segments.create(name="000.ts", content=b"draft")
 
     client = auth_client_for(owner)
 
-    manifest_response = client.get(reverse("video-segment", kwargs={"movie_id": video.id, "resolution": "720p"}))
+    manifest_response = client.get(
+        reverse("video-segment", kwargs={"movie_id": video.id, "resolution": "720p"})
+    )
     assert manifest_response.status_code == status.HTTP_200_OK
 
     segment_response = client.get(
@@ -232,7 +246,9 @@ def test_video_segment_returns_binary_content(
     payload = b"\x00\x01video-data"
     segment_factory("000.ts", payload)
 
-    response = authenticated_client.get(segment_url(stream.video_id, stream.resolution, "000.ts"))
+    response = authenticated_client.get(
+        segment_url(stream.video_id, stream.resolution, "000.ts")
+    )
 
     assert_ts_success(response, payload)
 
@@ -268,10 +284,14 @@ def test_video_segment_requires_authentication(stream, segment_factory) -> None:
 def test_video_segment_returns_404_when_segment_missing(
     authenticated_client: APIClient, stream
 ) -> None:
-    response = authenticated_client.get(segment_url(stream.video_id, stream.resolution, "000.ts"))
+    response = authenticated_client.get(
+        segment_url(stream.video_id, stream.resolution, "000.ts")
+    )
 
     payload = assert_json_error(response, status.HTTP_404_NOT_FOUND)
-    assert payload["errors"]["non_field_errors"][0].startswith("Video segment not found")
+    assert payload["errors"]["non_field_errors"][0].startswith(
+        "Video segment not found"
+    )
 
 
 def test_video_segment_rejects_invalid_resolution_format(
@@ -279,7 +299,9 @@ def test_video_segment_rejects_invalid_resolution_format(
 ) -> None:
     segment_factory("000.ts", b"x")
 
-    response = authenticated_client.get(segment_url(stream.video_id, "invalid", "000.ts"))
+    response = authenticated_client.get(
+        segment_url(stream.video_id, "invalid", "000.ts")
+    )
 
     payload = assert_json_error(response, status.HTTP_400_BAD_REQUEST)
     assert "resolution" in payload["errors"]
@@ -291,7 +313,9 @@ def test_video_segment_rejects_invalid_segment_name(
 ) -> None:
     segment_factory("000.ts", b"x")
 
-    response = authenticated_client.get(segment_url(stream.video_id, stream.resolution, "000"))
+    response = authenticated_client.get(
+        segment_url(stream.video_id, stream.resolution, "000")
+    )
 
     payload = assert_json_error(response, status.HTTP_400_BAD_REQUEST)
     assert "segment" in payload["errors"]
@@ -325,8 +349,12 @@ def test_video_segment_is_idempotent(
     payload = b"\x11\x22\x33"
     segment_factory("001.ts", payload)
 
-    first = authenticated_client.get(segment_url(stream.video_id, stream.resolution, "001.ts"))
-    second = authenticated_client.get(segment_url(stream.video_id, stream.resolution, "001.ts"))
+    first = authenticated_client.get(
+        segment_url(stream.video_id, stream.resolution, "001.ts")
+    )
+    second = authenticated_client.get(
+        segment_url(stream.video_id, stream.resolution, "001.ts")
+    )
 
     assert_ts_success(first, payload)
     assert_ts_success(second, payload)
@@ -348,7 +376,9 @@ def test_video_segment_rejects_unacceptable_accept_header(
     )
 
     payload = assert_json_error(response, status.HTTP_406_NOT_ACCEPTABLE)
-    assert payload["errors"]["non_field_errors"][0].startswith("Requested media type not acceptable")
+    assert payload["errors"]["non_field_errors"][0].startswith(
+        "Requested media type not acceptable"
+    )
 
 
 @pytest.mark.parametrize("method_name", ["post", "put", "patch", "delete"])
@@ -373,7 +403,9 @@ def test_video_segment_head_method_policy(
     payload = b"\x99"
     segment_factory("head.ts", payload)
 
-    response = authenticated_client.head(segment_url(stream.video_id, stream.resolution, "head.ts"))
+    response = authenticated_client.head(
+        segment_url(stream.video_id, stream.resolution, "head.ts")
+    )
 
     assert response.status_code == status.HTTP_200_OK
     assert _collect_response_bytes(response) == b""
@@ -385,7 +417,9 @@ def test_video_segment_options_method_policy(
 ) -> None:
     segment_factory("opt.ts", b"a")
 
-    response = authenticated_client.options(segment_url(stream.video_id, stream.resolution, "opt.ts"))
+    response = authenticated_client.options(
+        segment_url(stream.video_id, stream.resolution, "opt.ts")
+    )
 
     assert response.status_code == status.HTTP_200_OK
     assert response["Content-Type"].startswith("application/json")
@@ -404,7 +438,9 @@ def test_video_segment_success_has_caching_headers(
     payload = b"\x55"
     segment_factory("cache.ts", payload)
 
-    response = authenticated_client.get(segment_url(stream.video_id, stream.resolution, "cache.ts"))
+    response = authenticated_client.get(
+        segment_url(stream.video_id, stream.resolution, "cache.ts")
+    )
 
     assert_ts_success(response, payload)
     cache_control = response.get("Cache-Control", "")
@@ -467,7 +503,9 @@ def test_video_segment_options_includes_allow_header(
 ) -> None:
     segment_factory("allow.ts", b"x")
 
-    response = authenticated_client.options(segment_url(stream.video_id, stream.resolution, "allow.ts"))
+    response = authenticated_client.options(
+        segment_url(stream.video_id, stream.resolution, "allow.ts")
+    )
 
     assert response.status_code == status.HTTP_200_OK
     assert response["Content-Type"].startswith("application/json")
@@ -485,7 +523,9 @@ def test_video_segment_success_cache_control_policy(
     payload = b"\x66"
     segment_factory("policy.ts", payload)
 
-    response = authenticated_client.get(segment_url(stream.video_id, stream.resolution, "policy.ts"))
+    response = authenticated_client.get(
+        segment_url(stream.video_id, stream.resolution, "policy.ts")
+    )
 
     assert_ts_success(response, payload)
     cache_control = response.get("Cache-Control", "")
@@ -501,7 +541,9 @@ def test_video_segment_success_etag_is_quoted(
     payload = b"\x77"
     segment_factory("etag.ts", payload)
 
-    response = authenticated_client.get(segment_url(stream.video_id, stream.resolution, "etag.ts"))
+    response = authenticated_client.get(
+        segment_url(stream.video_id, stream.resolution, "etag.ts")
+    )
 
     assert_ts_success(response, payload)
     if "ETag" not in response:

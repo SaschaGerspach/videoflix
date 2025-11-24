@@ -41,7 +41,9 @@ def _debug_not_found(response, reason: str):
     return response
 
 
-def force_json_response(payload: dict, status_code: int = status.HTTP_200_OK) -> Response:
+def force_json_response(
+    payload: dict, status_code: int = status.HTTP_200_OK
+) -> Response:
     renderer = JSONRenderer()
     response = Response(payload, status=status_code)
     response.accepted_renderer = renderer
@@ -92,7 +94,9 @@ class MediaSegmentBaseView(APIView):
     not_acceptable_message = "Requested media type not acceptable."
     permission_classes = [IsAuthenticated]
 
-    def _ensure_accept_header(self, request, expected_media_type: str | None = None) -> None:
+    def _ensure_accept_header(
+        self, request, expected_media_type: str | None = None
+    ) -> None:
         if self._accept_allows(request, expected_media_type):
             return
         raise NotAcceptable(self.not_acceptable_message)

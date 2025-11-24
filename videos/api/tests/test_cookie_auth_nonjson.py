@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 
 import jwt
 import pytest
@@ -17,7 +17,7 @@ def allow_test_hosts(settings):
 
 
 def _make_access_token(user) -> str:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     payload = {
         "user_id": user.pk,
         "username": user.username,
@@ -57,7 +57,9 @@ def test_cookie_auth_non_json_accept_headers(allow_test_hosts):
 
 
 @pytest.mark.django_db
-def test_login_sets_cookie_that_allows_hls_requests(allow_test_hosts, settings, client, tmp_path):
+def test_login_sets_cookie_that_allows_hls_requests(
+    allow_test_hosts, settings, client, tmp_path
+):
     user_model = get_user_model()
     password = "pass1234"
     user = user_model.objects.create_user(
@@ -79,7 +81,9 @@ def test_login_sets_cookie_that_allows_hls_requests(allow_test_hosts, settings, 
         is_published=True,
     )
     manifest_body = "#EXTM3U\n#EXTINF:10,\n000.ts\n"
-    stream = VideoStream.objects.create(video=video, resolution="480p", manifest=manifest_body)
+    stream = VideoStream.objects.create(
+        video=video, resolution="480p", manifest=manifest_body
+    )
     VideoSegment.objects.create(stream=stream, name="000.ts", content=b"segment-bytes")
 
     login_response = client.post(
@@ -170,7 +174,9 @@ def test_hls_endpoints_require_cookie(allow_test_hosts, settings, tmp_path):
         category=VideoCategory.DRAMA,
         is_published=True,
     )
-    stream = VideoStream.objects.create(video=video, resolution="480p", manifest="#EXTM3U\n")
+    stream = VideoStream.objects.create(
+        video=video, resolution="480p", manifest="#EXTM3U\n"
+    )
     VideoSegment.objects.create(stream=stream, name="000.ts", content=b"segment-bytes")
 
     client = APIClient()
@@ -208,4 +214,6 @@ def test_debug_auth_returns_json_regardless_of_accept(allow_test_hosts, client):
     assert response.status_code == 200
     assert response["Content-Type"].startswith("application/json")
     payload = response.json()
-    assert {"seen_access_cookie", "user_authenticated", "user_id"}.issubset(payload.keys())
+    assert {"seen_access_cookie", "user_authenticated", "user_id"}.issubset(
+        payload.keys()
+    )

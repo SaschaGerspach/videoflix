@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import importlib
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -10,7 +9,6 @@ from rest_framework.test import APIClient
 
 from jobs.domain import services
 from jobs.domain.services import transcode_pending_key
-from videos.domain import hls as hls_utils
 
 
 @pytest.fixture(autouse=True)
@@ -47,11 +45,17 @@ def test_enqueue_transcode_uses_rq_queue(monkeypatch, settings, tmp_path):
         captured["video_id"] = video_id_arg
         captured["resolutions"] = list(resolutions)
         captured["queue"] = queue
-        return {"accepted": True, "job_id": "job-1", "queue": queue.name if queue else None}
+        return {
+            "accepted": True,
+            "job_id": "job-1",
+            "queue": queue.name if queue else None,
+        }
 
     dummy_queue = DummyQueue()
     monkeypatch.setattr(services.transcode_queue, "enqueue_transcode_job", fake_enqueue)
-    monkeypatch.setattr(services.transcode_queue, "get_transcode_queue", lambda: dummy_queue)
+    monkeypatch.setattr(
+        services.transcode_queue, "get_transcode_queue", lambda: dummy_queue
+    )
 
     result = services.enqueue_transcode(101, target_resolutions=["480p"])
 
@@ -96,6 +100,7 @@ def test_enqueue_transcode_falls_back_when_queue_fails(monkeypatch, settings, tm
 def test_write_master_playlist_includes_all_profiles(tmp_path, settings):
     settings.MEDIA_ROOT = tmp_path
     import videos.domain.hls as hls_module
+
     importlib.reload(hls_module)
 
     video_id = 303
@@ -116,18 +121,21 @@ def test_write_master_playlist_includes_all_profiles(tmp_path, settings):
     assert "720p/index.m3u8" in master_content
 
 
-
 @pytest.mark.django_db
 def test_queue_health_reports_available_queue(monkeypatch, settings):
     settings.DEBUG = True
     settings.RQ_QUEUE_TRANSCODE = "transcode"
-    settings.RQ_QUEUES = {"transcode": {"URL": "redis://127.0.0.1:6379/0", "DEFAULT_TIMEOUT": 60 * 20}}
+    settings.RQ_QUEUES = {
+        "transcode": {"URL": "redis://127.0.0.1:6379/0", "DEFAULT_TIMEOUT": 60 * 20}
+    }
 
     class DummyQueue:
         name = "transcode"
         count = 4
 
-    monkeypatch.setattr("videos.api.views.queue_health.get_transcode_queue", lambda: DummyQueue())
+    monkeypatch.setattr(
+        "videos.api.views.queue_health.get_transcode_queue", lambda: DummyQueue()
+    )
     client = APIClient()
     response = client.get("/api/_debug/queue")
 
@@ -142,7 +150,9 @@ def test_queue_health_handles_unavailable_queue(monkeypatch, settings):
     settings.RQ_QUEUE_TRANSCODE = "transcode"
     settings.RQ_QUEUES = {}
 
-    monkeypatch.setattr("videos.api.views.queue_health.get_transcode_queue", lambda: None)
+    monkeypatch.setattr(
+        "videos.api.views.queue_health.get_transcode_queue", lambda: None
+    )
     client = APIClient()
     response = client.get("/api/_debug/queue")
 
@@ -153,8 +163,6 @@ def test_queue_health_handles_unavailable_queue(monkeypatch, settings):
     assert payload["count"] is None
     assert "detail" in payload
     assert response["Cache-Control"] == "no-cache"
-
-
 
 
 @pytest.mark.django_db
@@ -172,7 +180,9 @@ def test_queue_health_returns_404_when_debug_false(settings):
 def test_queue_health_handles_callable_count(monkeypatch, settings):
     settings.DEBUG = True
     settings.RQ_QUEUE_TRANSCODE = "transcode"
-    settings.RQ_QUEUES = {"transcode": {"URL": "redis://127.0.0.1:6379/0", "DEFAULT_TIMEOUT": 60 * 20}}
+    settings.RQ_QUEUES = {
+        "transcode": {"URL": "redis://127.0.0.1:6379/0", "DEFAULT_TIMEOUT": 60 * 20}
+    }
 
     class DummyQueue:
         name = "transcode"
@@ -180,7 +190,9 @@ def test_queue_health_handles_callable_count(monkeypatch, settings):
         def count(self):
             return 7
 
-    monkeypatch.setattr("videos.api.views.queue_health.get_transcode_queue", lambda: DummyQueue())
+    monkeypatch.setattr(
+        "videos.api.views.queue_health.get_transcode_queue", lambda: DummyQueue()
+    )
     client = APIClient()
     response = client.get("/api/_debug/queue")
 

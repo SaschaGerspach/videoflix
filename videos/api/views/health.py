@@ -1,3 +1,5 @@
+"""Health endpoints for checking whether HLS renditions exist on disk."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -14,6 +16,8 @@ from videos.domain.selectors import resolve_public_id
 
 
 class VideoHealthView(APIView):
+    """Return rendition statistics for a public video without authentication."""
+
     permission_classes = [AllowAny]
 
     def get(self, request, public_id: int):
@@ -33,9 +37,7 @@ class VideoHealthView(APIView):
                 continue
 
             segment_files = [
-                path
-                for path in (manifest_path.parent).glob("*.ts")
-                if path.is_file()
+                path for path in (manifest_path.parent).glob("*.ts") if path.is_file()
             ]
             sizes = [path.stat().st_size for path in segment_files]
             rendition_stats[resolution] = {

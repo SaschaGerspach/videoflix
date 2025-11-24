@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
+from collections.abc import Sequence
 
 from django.db.models import Q, QuerySet
 from django.http import Http404
@@ -14,8 +15,7 @@ def _ordered_queryset(qs: QuerySet[Video]) -> QuerySet[Video]:
 
 
 def get_user_video_queryset(user) -> QuerySet[Video]:
-    """
-    Return videos visible to the given user, ordered deterministically.
+    """Return videos visible to the given user, ordered deterministically.
 
     Admins/staff see all videos. Regular users see their own uploads and any
     published videos.
@@ -35,9 +35,7 @@ def get_user_video_queryset(user) -> QuerySet[Video]:
 
 
 def resolve_public_id_to_real_id(user, public_id: int) -> int:
-    """
-    Resolve a 1-based public ordinal to the underlying database ID.
-    """
+    """Resolve a 1-based public ordinal to the underlying database ID."""
     ids = list(get_user_video_queryset(user).values_list("id", flat=True))
     if public_id < 1:
         raise Http404("Video not found.")
@@ -53,13 +51,14 @@ def list_for_user_with_public_ids(
     *,
     ready_only: bool = True,
     res: str = "480p",
-) -> List[Dict[str, Any]]:
-    """
-    Serialize the video list for the user with ordinal IDs.
-    """
+    ordering: Sequence[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Serialize the video list for the user with ordinal IDs."""
     from videos.api.serializers import VideoSerializer
 
     videos = get_user_video_queryset(user)
+    if ordering:
+        videos = videos.order_by(*ordering)
     filtered = filter_queryset_ready(videos, res=res, ready_only=ready_only)
     if isinstance(filtered, QuerySet):
         filtered = list(filtered)

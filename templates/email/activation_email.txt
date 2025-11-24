@@ -1,0 +1,11 @@
+Dear {{ user_name|default:"there" }},
+
+Thank you for registering with {{ project_name }}.
+To activate your account, please open the link below in your browser:
+
+{{ action_url }}
+
+If you did not create this account, you can safely ignore this email.
+
+Best regards,
+Your {{ project_name }} Team.

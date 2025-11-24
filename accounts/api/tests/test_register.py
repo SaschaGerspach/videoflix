@@ -46,8 +46,7 @@ def test_register_success_creates_inactive_user(api_client: APIClient):
 
 @pytest.mark.django_db
 def test_register_fails_when_password_missing(api_client: APIClient):
-    payload = {"email": "user@example.com",
-               "confirmed_password": "securepassword123"}
+    payload = {"email": "user@example.com", "confirmed_password": "securepassword123"}
 
     response = api_client.post(reverse("register"), payload, format="json")
 
@@ -75,8 +74,10 @@ def test_register_fails_when_passwords_do_not_match(api_client: APIClient):
 
 @pytest.mark.django_db
 def test_register_fails_when_email_missing(api_client: APIClient):
-    payload = {"password": "securepassword123",
-               "confirmed_password": "securepassword123"}
+    payload = {
+        "password": "securepassword123",
+        "confirmed_password": "securepassword123",
+    }
 
     response = api_client.post(reverse("register"), payload, format="json")
 
@@ -111,25 +112,33 @@ def test_register_fails_when_email_already_exists(api_client: APIClient):
 
 @pytest.mark.django_db
 def test_register_fails_when_email_exists_case_insensitive(api_client):
-    get_user_model().objects.create_user(email="User@Example.com",
-                                         username="User@Example.com", password="x")
-    payload = {"email": "user@example.com",
-               "password": "x1", "confirmed_password": "x1"}
+    get_user_model().objects.create_user(
+        email="User@Example.com", username="User@Example.com", password="x"
+    )
+    payload = {
+        "email": "user@example.com",
+        "password": "x1",
+        "confirmed_password": "x1",
+    }
     r = api_client.post(reverse("register"), payload, format="json")
     assert r.status_code == status.HTTP_400_BAD_REQUEST
 
 
 @pytest.mark.django_db
 def test_register_fails_on_invalid_json(api_client):
-    r = api_client.post(reverse("register"), "not json",
-                        content_type="application/json")
+    r = api_client.post(
+        reverse("register"), "not json", content_type="application/json"
+    )
     assert r.status_code == status.HTTP_400_BAD_REQUEST
 
 
-@pytest.mark.parametrize("payload,field", [
-    ({"confirmed_password": "a"}, "password"),
-    ({"password": "a", "confirmed_password": "a"}, "email"),
-])
+@pytest.mark.parametrize(
+    "payload,field",
+    [
+        ({"confirmed_password": "a"}, "password"),
+        ({"password": "a", "confirmed_password": "a"}, "email"),
+    ],
+)
 @pytest.mark.django_db
 def test_register_400_missing_fields(api_client, payload, field):
     r = api_client.post(reverse("register"), payload, format="json")

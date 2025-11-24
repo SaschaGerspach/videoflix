@@ -52,7 +52,9 @@ def test_segment_name_candidates_handles_backslashes():
     assert candidates[0].startswith("hls/")
 
 
-def test_run_heal_hls_index_missing_vs_present_segments(tmp_path, settings, monkeypatch):
+def test_run_heal_hls_index_missing_vs_present_segments(
+    tmp_path, settings, monkeypatch
+):
     settings.MEDIA_ROOT = tmp_path.as_posix()
     video_missing = _create_video()
     video_ready = _create_video()
@@ -77,7 +79,9 @@ def test_run_heal_hls_index_missing_vs_present_segments(tmp_path, settings, monk
     assert videos[video_ready.id]["details"]["720p"]["ts_count"] == 1
 
 
-def test_run_heal_hls_index_rebuild_master_creates_playlist(tmp_path, settings, monkeypatch):
+def test_run_heal_hls_index_rebuild_master_creates_playlist(
+    tmp_path, settings, monkeypatch
+):
     settings.MEDIA_ROOT = tmp_path.as_posix()
     video = _create_video()
     VideoStream.objects.create(video=video, resolution="720p", manifest="#EXTM3U\n")
@@ -127,7 +131,9 @@ def test_run_heal_hls_index_handles_empty_public_list(tmp_path, settings):
     assert any("No videos to process" in warning for warning in result["warnings"])
 
 
-def test_inspect_filesystem_invalid_resolution_sets_error(tmp_path, settings, monkeypatch):
+def test_inspect_filesystem_invalid_resolution_sets_error(
+    tmp_path, settings, monkeypatch
+):
     settings.MEDIA_ROOT = tmp_path.as_posix()
     video = _create_video()
 
@@ -135,7 +141,9 @@ def test_inspect_filesystem_invalid_resolution_sets_error(tmp_path, settings, mo
         raise ValueError("unsafe")
 
     monkeypatch.setattr(ops, "find_manifest_path", fake_find)
-    result = ops._inspect_filesystem(settings, Path(settings.MEDIA_ROOT), [(1, video.id, video)], ["../720p"])
+    result = ops._inspect_filesystem(
+        settings, Path(settings.MEDIA_ROOT), [(1, video.id, video)], ["../720p"]
+    )
     entry = result["entries"][0]
     assert entry["failure"] is True
     assert "find_manifest_path failed" in entry["error"]
@@ -181,18 +189,46 @@ def test_format_diagnose_backend_text_verbose():
             "canonical_renditions": ["720p"],
             "static_url": "/static/",
             "redis_url": None,
-            "rq": {"queue_default": "default", "queue_transcode": "transcode", "redis_url": None},
+            "rq": {
+                "queue_default": "default",
+                "queue_transcode": "transcode",
+                "redis_url": None,
+            },
         },
         "videos": [
-            {"public": 1, "real": 3, "title": "Sample", "created_at": "2024-01-01T00:00:00"},
+            {
+                "public": 1,
+                "real": 3,
+                "title": "Sample",
+                "created_at": "2024-01-01T00:00:00",
+            },
         ],
         "fs_checks": [
-            {"public": 1, "resolution": "720p", "failure": False, "manifest": "/srv/index.m3u8"}
+            {
+                "public": 1,
+                "resolution": "720p",
+                "failure": False,
+                "manifest": "/srv/index.m3u8",
+            }
         ],
-        "routing": {"paths": [{"path": "/api/video/1/720p/index.m3u8", "ok": True}], "failures": 0},
-        "views": {"failures": 0, "manifest": {"status": 200}, "segment": {"status": 200}},
-        "headers": {"manifest": {"ctype": "application/vnd.apple.mpegurl"}, "segment": {"ctype": "video/vnd.dlna.mpeg-tts"}},
-        "debug": {"failures": 0, "queue_health": {"importable": True}, "debug_renditions": {}},
+        "routing": {
+            "paths": [{"path": "/api/video/1/720p/index.m3u8", "ok": True}],
+            "failures": 0,
+        },
+        "views": {
+            "failures": 0,
+            "manifest": {"status": 200},
+            "segment": {"status": 200},
+        },
+        "headers": {
+            "manifest": {"ctype": "application/vnd.apple.mpegurl"},
+            "segment": {"ctype": "video/vnd.dlna.mpeg-tts"},
+        },
+        "debug": {
+            "failures": 0,
+            "queue_health": {"importable": True},
+            "debug_renditions": {},
+        },
     }
     text = ops.format_diagnose_backend_text(report, verbose=True)
     assert "Settings" in text
@@ -251,7 +287,9 @@ def test_invoke_views_generates_header_report(monkeypatch):
 
     view_info, header_report, header_warnings = ops._invoke_views([fs_entry])
     assert view_info["failures"] == 0
-    assert header_report["manifest"]["ctype"].startswith("application/vnd.apple.mpegurl")
+    assert header_report["manifest"]["ctype"].startswith(
+        "application/vnd.apple.mpegurl"
+    )
     assert header_report["segment"]["disposition_inline"] is True
     assert header_warnings == []
 
@@ -291,7 +329,9 @@ def test_scan_rendition_reports_segment_sizes(tmp_path, settings):
     assert info.has_files is True
 
 
-def test_run_heal_hls_index_rebuilds_master_playlist_idempotent(tmp_path, settings, monkeypatch):
+def test_run_heal_hls_index_rebuilds_master_playlist_idempotent(
+    tmp_path, settings, monkeypatch
+):
     settings.MEDIA_ROOT = tmp_path.as_posix()
     video = _create_video(id=10)
     root = Path(settings.MEDIA_ROOT)
@@ -424,4 +464,3 @@ def test_inspect_filesystem_normalizes_mixed_paths(tmp_path, settings):
     assert entry["segment_on_disk"] == "alt/000.ts"
     assert entry["segment_zero_on_disk"] == "alt/000.ts"
     assert entry["failure"] is False
-

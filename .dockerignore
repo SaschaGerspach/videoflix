@@ -1,0 +1,52 @@
+# Python
+
+**pycache**/
+\*.pyc
+
+# Virtual environments
+
+.venv/
+env/
+venv/
+
+# Local env files (but NOT env.example!)
+
+.env
+.env.\*
+!.env.example
+
+# Media / runtime data
+
+media/
+uploads/
+staticfiles/
+tmp/
+temp/
+
+# Git stuff
+
+.git/
+.gitignore
+
+# Node
+
+node_modules/
+dist/
+build/
+
+# Tests cache
+
+.pytest_cache/
+htmlcov/
+.coverage
+
+# Docker stuff
+
+_.pid
+_.seed
+\*.pid.lock
+
+# OS files
+
+.DS_Store
+Thumbs.db

@@ -56,7 +56,9 @@ def test_normalise_resolutions_deduplicates_and_fallback(settings):
     assert result_empty == ["720p", "1080p"]
 
 
-def test_collect_settings_summary_uses_allowed_when_no_canonical(settings, tmp_path, monkeypatch):
+def test_collect_settings_summary_uses_allowed_when_no_canonical(
+    settings, tmp_path, monkeypatch
+):
     monkeypatch.setattr(settings, "CANONICAL_RENDITIONS", tuple(), raising=False)
     summary = ops._collect_settings_summary(settings, tmp_path)
     assert summary["allowed_renditions"]
@@ -68,7 +70,9 @@ def test_collect_videos_returns_warning_when_no_ids(monkeypatch, settings):
     def fake_selector(*args, **kwargs):
         return []
 
-    monkeypatch.setattr(ops.selectors_public, "list_for_user_with_public_ids", fake_selector)
+    monkeypatch.setattr(
+        ops.selectors_public, "list_for_user_with_public_ids", fake_selector
+    )
     result = ops._collect_videos(settings, explicit_public=None, resolution_hint="720p")
     assert result["warnings"]
     assert result["items"] == []

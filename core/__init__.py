@@ -1,2 +1,4 @@
-from . import checks  # noqa: F401
-from .api import spectacular_ext  # noqa: F401
+"""Core project package.
+
+System checks and DRF extensions are loaded via core.apps.CoreConfig.
+"""

@@ -35,7 +35,7 @@ __all__ = [
 ]
 
 try:  # Optional upload view
-    from .upload import VideoUploadView  # noqa: F401
+    from .upload import VideoUploadView
 except Exception:  # pragma: no cover
     VideoUploadView = None  # type: ignore[assignment]
 else:

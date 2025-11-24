@@ -1,0 +1,695 @@
+openapi: 3.0.3
+info:
+  title: Videoflix API
+  version: 1.0.0
+  description: Videostreaming API (auth, videos, HLS).
+paths:
+  /api/:
+    get:
+      operationId: root_list
+      description: Return all available videos for authenticated users.
+      tags:
+      - Videos
+      security:
+      - cookieJwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Video'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+  /api/{movie_id}/{resolution}/{segment}/:
+    get:
+      operationId: video_segment_content
+      description: Return a binary HLS segment for the requested video stream.
+      parameters:
+      - in: query
+        name: format
+        schema:
+          type: string
+          enum:
+          - json
+          - ts
+      - in: path
+        name: movie_id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: resolution
+        schema:
+          type: string
+        required: true
+      - in: path
+        name: segment
+        schema:
+          type: string
+        required: true
+      tags:
+      - Videos
+      security:
+      - cookieJwtAuth: []
+      responses:
+        '200':
+          content:
+            video/MP2T:
+              schema:
+                type: string
+                format: byte
+          description: MPEG-TS Segment
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+            video/MP2T:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+            video/MP2T:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                VideoSegmentNotFound:
+                  value:
+                    errors:
+                      non_field_errors:
+                      - Video segment not found.
+            video/MP2T:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+  /api/{movie_id}/{resolution}/index.m3u8:
+    get:
+      operationId: video_manifest
+      description: Return the HLS master playlist for the requested video stream.
+      parameters:
+      - in: query
+        name: format
+        schema:
+          type: string
+          enum:
+          - json
+          - m3u8
+      - in: path
+        name: movie_id
+        schema:
+          type: integer
+        required: true
+      - in: path
+        name: resolution
+        schema:
+          type: string
+        required: true
+      tags:
+      - Videos
+      security:
+      - cookieJwtAuth: []
+      responses:
+        '200':
+          content:
+            application/vnd.apple.mpegurl:
+              schema:
+                type: string
+                format: byte
+          description: HLS-Masterplaylist im M3U8-Format
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+            application/vnd.apple.mpegurl:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+            application/vnd.apple.mpegurl:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                VideoManifestNotFound:
+                  value:
+                    errors:
+                      non_field_errors:
+                      - Video manifest not found.
+            application/vnd.apple.mpegurl:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+  /api/auth/activate/:
+    post:
+      operationId: auth_activate_create
+      tags:
+      - Auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActivationRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ActivationRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ActivationRequestRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                ActivationError:
+                  value:
+                    errors:
+                      non_field_errors:
+                      - token is required.
+          description: ''
+  /api/login/:
+    post:
+      operationId: login_create
+      tags:
+      - Auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LoginRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LoginRequestRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                  user:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                      username:
+                        type: string
+              examples:
+                LoginSuccess:
+                  value:
+                    detail: Login successful
+                    user:
+                      id: 1
+                      username: user
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                LoginError:
+                  value:
+                    errors:
+                      non_field_errors:
+                      - Invalid credentials.
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+  /api/logout/:
+    post:
+      operationId: logout_create
+      tags:
+      - Auth
+      security:
+      - cookieJwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+          description: ''
+  /api/password_confirm/{uidb64}/{token}/:
+    post:
+      operationId: password_confirm_create
+      parameters:
+      - in: path
+        name: token
+        schema:
+          type: string
+        required: true
+      - in: path
+        name: uidb64
+        schema:
+          type: string
+        required: true
+      tags:
+      - Auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordConfirmRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PasswordConfirmRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PasswordConfirmRequestRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                PasswordConfirmError:
+                  value:
+                    errors:
+                      confirm_password:
+                      - Passwords do not match.
+          description: ''
+  /api/password_reset/:
+    post:
+      operationId: password_reset_create
+      tags:
+      - Auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordResetRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PasswordResetRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PasswordResetRequestRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                PasswordResetError:
+                  value:
+                    errors:
+                      email:
+                      - Email is required.
+          description: ''
+  /api/register/:
+    post:
+      operationId: register_create
+      tags:
+      - Auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegistrationRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/RegistrationRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/RegistrationRequestRequest'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                      email:
+                        type: string
+                    required:
+                    - id
+                    - email
+                  token:
+                    type: string
+                required:
+                - user
+                - token
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+  /api/token/refresh/:
+    post:
+      operationId: token_refresh_create
+      tags:
+      - Auth
+      security:
+      - cookieJwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                  access:
+                    type: string
+              examples:
+                TokenRefreshSuccess:
+                  value:
+                    detail: Token refreshed
+                    access: jwt-token
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                TokenRefreshError:
+                  value:
+                    errors:
+                      refresh_token:
+                      - Refresh token cookie missing.
+          description: ''
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+  /api/videos/{video_id}/transcode/:
+    post:
+      operationId: videos_transcode_create
+      parameters:
+      - in: path
+        name: video_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Transcoding
+      security:
+      - cookieJwtAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                  video_id:
+                    type: integer
+                required:
+                - detail
+                - video_id
+              examples:
+                TranscodeAccepted:
+                  value:
+                    detail: Transcode accepted
+                    video_id: 42
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                TranscodeError:
+                  value:
+                    errors:
+                      non_field_errors:
+                      - Unsupported resolution 'bogus'.
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+  /api/videos/{video_id}/upload/:
+    post:
+      operationId: videos_upload_create
+      description: Accept multipart video uploads and trigger auto-transcode for missing
+        profiles.
+      parameters:
+      - in: path
+        name: video_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - videos
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UploadFileRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/UploadFileRequest'
+        required: true
+      security:
+      - cookieJwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                  video_id:
+                    type: integer
+                required:
+                - detail
+                - video_id
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: ''
+components:
+  schemas:
+    ActivationRequestRequest:
+      type: object
+      properties:
+        uidb64:
+          type: string
+          minLength: 1
+        token:
+          type: string
+          minLength: 1
+      required:
+      - token
+      - uidb64
+    CategoryEnum:
+      enum:
+      - drama
+      - romance
+      - action
+      - documentary
+      - comedy
+      type: string
+      description: |-
+        * `drama` - Drama
+        * `romance` - Romance
+        * `action` - Action
+        * `documentary` - Documentary
+        * `comedy` - Comedy
+    LoginRequestRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          minLength: 1
+        password:
+          type: string
+          minLength: 1
+      required:
+      - email
+      - password
+    PasswordConfirmRequestRequest:
+      type: object
+      properties:
+        new_password:
+          type: string
+          minLength: 1
+        confirm_password:
+          type: string
+          minLength: 1
+      required:
+      - confirm_password
+      - new_password
+    PasswordResetRequestRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          minLength: 1
+      required:
+      - email
+    RegistrationRequestRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          minLength: 1
+        password:
+          type: string
+          minLength: 1
+        confirmed_password:
+          type: string
+          minLength: 1
+      required:
+      - confirmed_password
+      - email
+      - password
+    UploadFileRequest:
+      type: object
+      properties:
+        file:
+          type: string
+          format: binary
+      required:
+      - file
+    Video:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        title:
+          type: string
+          readOnly: true
+        description:
+          type: string
+          readOnly: true
+        thumbnail_url:
+          type: string
+          format: uri
+          readOnly: true
+        category:
+          allOf:
+          - $ref: '#/components/schemas/CategoryEnum'
+          readOnly: true
+      required:
+      - category
+      - created_at
+      - description
+      - id
+      - thumbnail_url
+      - title
+servers:
+- url: http://127.0.0.1:8000
+  description: Local Dev

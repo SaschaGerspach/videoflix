@@ -1,3 +1,5 @@
+"""Serve HLS segment content for authenticated clients."""
+
 from __future__ import annotations
 
 import logging
@@ -28,13 +30,14 @@ from .media_base import (
 
 logger = logging.getLogger(__name__)
 
-_ALLOWED_RENDITIONS = tuple(
-    getattr(
-        settings,
-        "ALLOWED_RENDITIONS",
-        getattr(settings, "VIDEO_ALLOWED_RENDITIONS", ("480p", "720p")),
-    )
-)
+
+def _get_allowed_renditions() -> tuple[str, ...]:
+    allowed = getattr(settings, "ALLOWED_RENDITIONS", None)
+    if allowed is None:
+        allowed = getattr(settings, "VIDEO_ALLOWED_RENDITIONS", ("480p", "720p"))
+    if not allowed:
+        return ()
+    return tuple(allowed)
 
 
 class VideoSegmentContentView(MediaSegmentBaseView):
@@ -109,7 +112,9 @@ class VideoSegmentContentView(MediaSegmentBaseView):
             }
         )
         if not serializer.is_valid():
-            return self._json_response({"errors": serializer.errors}, status.HTTP_400_BAD_REQUEST)
+            return self._json_response(
+                {"errors": serializer.errors}, status.HTTP_400_BAD_REQUEST
+            )
 
         try:
             video = Video.objects.get(pk=real_id)
@@ -148,7 +153,8 @@ class VideoSegmentContentView(MediaSegmentBaseView):
                 break
 
         if segment_path is None:
-            if _ALLOWED_RENDITIONS and resolution_value not in _ALLOWED_RENDITIONS:
+            allowed_renditions = _get_allowed_renditions()
+            if allowed_renditions and resolution_value not in allowed_renditions:
                 resp = self._json_response(
                     {"errors": {"non_field_errors": ["Video segment not found."]}},
                     status.HTTP_404_NOT_FOUND,

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable, Set, Tuple
+from collections.abc import Iterable
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
@@ -11,7 +11,7 @@ from videos.domain.selectors import resolve_public_id
 from videos.domain.services_index import fs_rendition_exists, index_existing_rendition
 
 
-def _allowed_resolutions() -> Tuple[str, ...]:
+def _allowed_resolutions() -> tuple[str, ...]:
     allowed = getattr(
         settings,
         "ALLOWED_RENDITIONS",
@@ -65,7 +65,7 @@ class Command(BaseCommand):
             resolutions = _allowed_resolutions()
         resolution_filter = set(resolutions)
 
-        targets: Set[Tuple[int, str]] = set()
+        targets: set[tuple[int, str]] = set()
         targets.update(self._expand_real_ids(real_ids, resolution_filter))
         targets.update(self._expand_public_ids(public_ids, resolution_filter))
         if scan_all:
@@ -81,7 +81,9 @@ class Command(BaseCommand):
         missing = 0
 
         for real_id, resolution in sorted(targets):
-            exists, manifest_path, segment_paths = fs_rendition_exists(real_id, resolution)
+            exists, manifest_path, segment_paths = fs_rendition_exists(
+                real_id, resolution
+            )
             if not exists:
                 missing += 1
                 self.stdout.write(f"missing {real_id}/{resolution}")
@@ -107,9 +109,9 @@ class Command(BaseCommand):
     def _expand_real_ids(
         self,
         real_ids: Iterable[int],
-        resolution_filter: Set[str],
-    ) -> Set[Tuple[int, str]]:
-        targets: Set[Tuple[int, str]] = set()
+        resolution_filter: set[str],
+    ) -> set[tuple[int, str]]:
+        targets: set[tuple[int, str]] = set()
         for real_id in real_ids:
             for resolution in resolution_filter:
                 targets.add((int(real_id), resolution))
@@ -118,9 +120,9 @@ class Command(BaseCommand):
     def _expand_public_ids(
         self,
         public_ids: Iterable[int],
-        resolution_filter: Set[str],
-    ) -> Set[Tuple[int, str]]:
-        targets: Set[Tuple[int, str]] = set()
+        resolution_filter: set[str],
+    ) -> set[tuple[int, str]]:
+        targets: set[tuple[int, str]] = set()
         for public_id in public_ids:
             try:
                 real_id = resolve_public_id(int(public_id))
@@ -131,12 +133,12 @@ class Command(BaseCommand):
                 targets.add((real_id, resolution))
         return targets
 
-    def _discover_all(self, resolution_filter: Set[str]) -> Set[Tuple[int, str]]:
+    def _discover_all(self, resolution_filter: set[str]) -> set[tuple[int, str]]:
         base = Path(settings.MEDIA_ROOT) / "hls"
         if not base.exists():
             return set()
 
-        targets: Set[Tuple[int, str]] = set()
+        targets: set[tuple[int, str]] = set()
         for real_dir in base.iterdir():
             if not real_dir.is_dir():
                 continue

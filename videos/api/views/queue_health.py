@@ -47,7 +47,9 @@ class QueueHealthView(APIView):
                             count_value = count_attr()
                         else:
                             count_value = count_attr
-                        payload["count"] = int(count_value) if count_value is not None else 0
+                        payload["count"] = (
+                            int(count_value) if count_value is not None else 0
+                        )
                         payload["connected"] = True
                     except Exception as exc:  # pragma: no cover - best effort logging
                         detail = f"Queue inspection failed: {exc}"

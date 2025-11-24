@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+  <body style="font-family: Arial, sans-serif; color: #333">
+    <div style="max-width: 600px; margin: auto">
+      <div style="text-align: center">
+        <img
+          src="{{ logo_url }}"
+          alt="Videoflix"
+          style="width: 180px; margin-bottom: 30px"
+        />
+      </div>
+      <p>Dear {{ user_name|default:"there" }},</p>
+      <p>
+        Thank you for registering with <strong>{{ project_name }}</strong>. Please click
+        the button below to activate your account:
+      </p>
+      <p style="text-align: center">
+        <a
+          href="{{ action_url }}"
+          style="
+            display: inline-block;
+            padding: 12px 24px;
+            background: #3b2cf3;
+            color: #fff;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: bold;
+          "
+        >
+          Activate account
+        </a>
+      </p>
+      <p style="font-size: 14px; color: #555">
+        If the button above does not work, copy and paste this link into your browser:<br />
+        <a href="{{ action_url }}" style="word-break: break-all; color: #3b2cf3">{{ action_url }}</a>
+      </p>
+      <p>
+        If you did not create an account with us, please disregard this email.
+      </p>
+      <p>Best regards,<br />Your {{ project_name }} Team.</p>
+    </div>
+  </body>
+</html>

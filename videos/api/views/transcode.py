@@ -11,11 +11,14 @@ from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
-from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiExample, extend_schema
 
 from jobs.domain import services as transcode_services
-from jobs.domain.services import ALLOWED_TRANSCODE_PROFILES, TranscodeError, is_transcode_locked
+from jobs.domain.services import (
+    ALLOWED_TRANSCODE_PROFILES,
+    TranscodeError,
+    is_transcode_locked,
+)
 from videos.api.serializers import VideoTranscodeRequestSerializer
 from videos.domain.models import Video
 from videos.domain.selectors import resolve_public_id
@@ -94,7 +97,11 @@ class VideoTranscodeView(APIView):
                 target_resolutions = list(ALLOWED_TRANSCODE_PROFILES.keys())
             else:
                 invalid = next(
-                    (item for item in requested if item not in ALLOWED_TRANSCODE_PROFILES),
+                    (
+                        item
+                        for item in requested
+                        if item not in ALLOWED_TRANSCODE_PROFILES
+                    ),
                     None,
                 )
                 if invalid:
@@ -106,7 +113,9 @@ class VideoTranscodeView(APIView):
         else:
             serializer = VideoTranscodeRequestSerializer(data=payload)
             if not serializer.is_valid():
-                return Response({"errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+                return Response(
+                    {"errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST
+                )
             target_resolutions = serializer.validated_data["resolutions"]
 
         try:
@@ -118,11 +127,21 @@ class VideoTranscodeView(APIView):
             )
 
         user = request.user
-        is_owner = video.owner_id is not None and video.owner_id == getattr(user, "id", None)
-        is_admin = getattr(user, "is_staff", False) or getattr(user, "is_superuser", False)
+        is_owner = video.owner_id is not None and video.owner_id == getattr(
+            user, "id", None
+        )
+        is_admin = getattr(user, "is_staff", False) or getattr(
+            user, "is_superuser", False
+        )
         if not (is_owner or is_admin):
             return Response(
-                {"errors": {"non_field_errors": ["You do not have permission to modify this video."]}},
+                {
+                    "errors": {
+                        "non_field_errors": [
+                            "You do not have permission to modify this video."
+                        ]
+                    }
+                },
                 status=status.HTTP_403_FORBIDDEN,
             )
 
@@ -133,7 +152,7 @@ class VideoTranscodeView(APIView):
             )
 
         if "PYTEST_CURRENT_TEST" in os.environ:
-            setattr(settings, "IS_TEST_ENV", True)
+            settings.IS_TEST_ENV = True
 
         try:
             enqueue_result = transcode_services.enqueue_transcode(

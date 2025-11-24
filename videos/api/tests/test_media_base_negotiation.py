@@ -40,7 +40,9 @@ def authenticated_client(media_root):
     )
 
     manifest_text = """#EXTM3U\n#EXTINF:10,\n000.ts\n"""
-    stream = VideoStream.objects.create(video=video, resolution="480p", manifest=manifest_text)
+    stream = VideoStream.objects.create(
+        video=video, resolution="480p", manifest=manifest_text
+    )
 
     base = Path(media_root) / "hls" / str(video.id) / "480p"
     base.mkdir(parents=True, exist_ok=True)
@@ -88,7 +90,6 @@ def test_segment_numeric_name_maps_to_zero_padded(authenticated_client):
     assert "Cache-Control" in response
     assert "ETag" in response
     assert b"".join(response.streaming_content).startswith(b"segment-001")
-
 
 
 def test_manifest_unacceptable_accept_returns_406(authenticated_client):

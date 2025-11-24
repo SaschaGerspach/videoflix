@@ -1,3 +1,5 @@
+"""Serve HLS manifests and segments based on public video IDs."""
+
 from __future__ import annotations
 
 import logging
@@ -31,13 +33,15 @@ from .media_base import (
 
 logger = logging.getLogger(__name__)
 
-_ALLOWED_RENDITIONS = tuple(
-    getattr(
-        settings,
-        "ALLOWED_RENDITIONS",
-        getattr(settings, "VIDEO_ALLOWED_RENDITIONS", ("480p", "720p")),
-    )
-)
+
+def _get_allowed_renditions() -> tuple[str, ...]:
+    allowed = getattr(settings, "ALLOWED_RENDITIONS", None)
+    if allowed is None:
+        allowed = getattr(settings, "VIDEO_ALLOWED_RENDITIONS", ("480p", "720p"))
+    if not allowed:
+        return ()
+    return tuple(allowed)
+
 
 class _JSONOnlyNegotiation(BaseContentNegotiation):
     def select_renderer(self, request, renderers, format_suffix=None):
@@ -64,7 +68,7 @@ class VideoSegmentView(MediaSegmentBaseView):
         responses={
             (200, M3U8Renderer.media_type): OpenApiResponse(
                 response=OpenApiTypes.BYTE,
-                description="HLS-Masterplaylist im M3U8-Format",
+                description="HLS master playlist in M3U8 format",
             ),
             400: ERROR_RESPONSE_REF,
             403: ERROR_RESPONSE_REF,
@@ -111,9 +115,13 @@ class VideoSegmentView(MediaSegmentBaseView):
 
         resolution = (resolution or "").strip().lower()
 
-        serializer = VideoSegmentRequestSerializer(data={"movie_id": real_id, "resolution": resolution})
+        serializer = VideoSegmentRequestSerializer(
+            data={"movie_id": real_id, "resolution": resolution}
+        )
         if not serializer.is_valid():
-            return self._json_response({"errors": serializer.errors}, status.HTTP_400_BAD_REQUEST)
+            return self._json_response(
+                {"errors": serializer.errors}, status.HTTP_400_BAD_REQUEST
+            )
 
         try:
             video = Video.objects.get(pk=real_id)
@@ -130,9 +138,12 @@ class VideoSegmentView(MediaSegmentBaseView):
             )
 
         resolution_value = serializer.validated_data["resolution"]
+        allowed_renditions = _get_allowed_renditions()
         fs_exists, fs_manifest_path, _ = fs_rendition_exists(real_id, resolution_value)
         manifest_path = (
-            fs_manifest_path if fs_manifest_path.parts else find_manifest_path(real_id, resolution_value)
+            fs_manifest_path
+            if fs_manifest_path.parts
+            else find_manifest_path(real_id, resolution_value)
         )
 
         if fs_exists:
@@ -156,7 +167,7 @@ class VideoSegmentView(MediaSegmentBaseView):
                 self._ensure_accept_header(request, M3U8Renderer.media_type)
                 response = FileResponse(manifest_path.open("rb"))
                 response["Content-Type"] = M3U8Renderer.media_type
-                response["Content-Disposition"] = 'inline; filename=\"index.m3u8\"'
+                response["Content-Disposition"] = 'inline; filename="index.m3u8"'
                 _set_cache_headers(response, manifest_path)
                 try:
                     index_existing_rendition(real_id, resolution_value)
@@ -168,7 +179,7 @@ class VideoSegmentView(MediaSegmentBaseView):
                     )
                 return response
 
-        if _ALLOWED_RENDITIONS and resolution_value not in _ALLOWED_RENDITIONS:
+        if allowed_renditions and resolution_value not in allowed_renditions:
             resp = self._json_response(
                 {"errors": {"non_field_errors": ["Video manifest not found."]}},
                 status.HTTP_404_NOT_FOUND,
@@ -199,7 +210,7 @@ class VideoSegmentView(MediaSegmentBaseView):
             self._ensure_accept_header(request, M3U8Renderer.media_type)
             response = FileResponse(manifest_path.open("rb"))
             response["Content-Type"] = M3U8Renderer.media_type
-            response["Content-Disposition"] = 'inline; filename=\"index.m3u8\"'
+            response["Content-Disposition"] = 'inline; filename="index.m3u8"'
             _set_cache_headers(response, manifest_path)
             return response
 
@@ -212,7 +223,6 @@ class VideoSegmentView(MediaSegmentBaseView):
 
 class VideoManifestView(VideoSegmentView):
     """Backward-compatible alias for manifest endpoint."""
-    pass
 
 
 class DebugAuthView(APIView):

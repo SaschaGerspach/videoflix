@@ -1,8 +1,10 @@
+"""Inspect on-disk HLS renditions for a set of videos."""
+
 from __future__ import annotations
 
 from collections import defaultdict
 from pathlib import Path
-from typing import Iterable, Sequence
+from collections.abc import Iterable, Sequence
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
@@ -37,6 +39,8 @@ DEFAULT_RESOLUTIONS = ("480p", "720p", "1080p")
 
 
 class Command(BaseCommand):
+    """Report manifest health for selected videos without mutating state."""
+
     help = "Inspect existing HLS renditions for the provided videos."
 
     def add_arguments(self, parser):
@@ -66,13 +70,16 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        """Resolve requested videos and print rendition status summaries."""
         public_inputs = _flatten(options.get("public_ids"))
         real_inputs = _flatten(options.get("real_ids"))
         raw_resolutions = options.get("resolutions") or []
         flattened_resolutions: list[str] = []
         for chunk in raw_resolutions:
             flattened_resolutions.extend(chunk)
-        resolutions = list(dict.fromkeys(flattened_resolutions)) or list(DEFAULT_RESOLUTIONS)
+        resolutions = list(dict.fromkeys(flattened_resolutions)) or list(
+            DEFAULT_RESOLUTIONS
+        )
 
         if not public_inputs and not real_inputs:
             raise CommandError("Provide at least one --public or --real identifier.")
@@ -93,7 +100,9 @@ class Command(BaseCommand):
         missing_real_inputs: list[int] = []
         if real_inputs:
             existing = set(
-                Video.objects.filter(pk__in=set(real_inputs)).values_list("pk", flat=True)
+                Video.objects.filter(pk__in=set(real_inputs)).values_list(
+                    "pk", flat=True
+                )
             )
             for real_id in real_inputs:
                 if real_id not in existing:
@@ -116,7 +125,9 @@ class Command(BaseCommand):
             header_parts = [f"real: {real_id}"]
             public_ids = public_mapping.get(real_id)
             if public_ids:
-                header_parts.insert(0, f"public: {', '.join(str(pid) for pid in public_ids)}")
+                header_parts.insert(
+                    0, f"public: {', '.join(str(pid) for pid in public_ids)}"
+                )
             self.stdout.write(" ".join(header_parts))
 
             for res in resolutions:
@@ -149,8 +160,7 @@ class Command(BaseCommand):
             raise CommandError("Completed with invalid identifiers.")
 
     def _resolution_status(self, real_id: int, resolution: str) -> tuple[str, int]:
-        """
-        Determine rendition status for the given video/resolution.
+        """Determine rendition status for the given video/resolution.
 
         Returns a tuple of (status, ts_count) where status is one of OK, EMPTY, or MISSING.
         """

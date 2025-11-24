@@ -6,7 +6,11 @@ import pytest
 from django.http import HttpResponse
 from rest_framework.exceptions import NotAcceptable
 
-from videos.api.views.media_base import MediaSegmentBaseView, _set_cache_headers, _user_can_access
+from videos.api.views.media_base import (
+    MediaSegmentBaseView,
+    _set_cache_headers,
+    _user_can_access,
+)
 
 
 pytest_plugins = ("videos.api.tests.test_hls_etag_cache",)
@@ -21,7 +25,9 @@ class _StubView(MediaSegmentBaseView):
 def test_accept_header_missing_allows_request():
     view = _StubView()
     request = SimpleNamespace(META={})
-    assert view._accept_allows(request, expected_media_type="application/vnd.apple.mpegurl")
+    assert view._accept_allows(
+        request, expected_media_type="application/vnd.apple.mpegurl"
+    )
 
 
 def test_accept_header_star_allows_any():
@@ -34,7 +40,9 @@ def test_accept_header_invalid_type_raises():
     view = _StubView()
     request = SimpleNamespace(META={"HTTP_ACCEPT": "image/png"})
     with pytest.raises(NotAcceptable):
-        view._ensure_accept_header(request, expected_media_type="application/vnd.apple.mpegurl")
+        view._ensure_accept_header(
+            request, expected_media_type="application/vnd.apple.mpegurl"
+        )
 
 
 def test_set_cache_headers_assigns_etag(tmp_path):
@@ -75,7 +83,12 @@ def test_manifest_etag_allows_if_none_match_304(auth_client):
 def test_accept_header_matrix(header, expected):
     view = _StubView()
     request = SimpleNamespace(META={"HTTP_ACCEPT": header} if header else {})
-    assert view._accept_allows(request, expected_media_type="application/vnd.apple.mpegurl") is expected
+    assert (
+        view._accept_allows(
+            request, expected_media_type="application/vnd.apple.mpegurl"
+        )
+        is expected
+    )
 
 
 def test_manifest_request_sets_cache_headers_and_inline(auth_client):
@@ -123,7 +136,9 @@ def test_local_bypass_allows_inline_delivery(settings):
     request = SimpleNamespace(
         META={"REMOTE_ADDR": "127.0.0.1"},
         method="GET",
-        user=SimpleNamespace(is_authenticated=False, is_staff=False, is_superuser=False, id=None),
+        user=SimpleNamespace(
+            is_authenticated=False, is_staff=False, is_superuser=False, id=None
+        ),
     )
     video = SimpleNamespace(owner_id=None, is_published=True)
 

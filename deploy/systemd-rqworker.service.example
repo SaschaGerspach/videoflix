@@ -1,0 +1,15 @@
+[Unit]
+Description=Videoflix RQ Worker
+After=network.target
+
+[Service]
+User=videoflix
+Group=videoflix
+WorkingDirectory=/srv/videoflix/app
+EnvironmentFile=/srv/videoflix/app/.env
+ExecStart=/usr/bin/env PATH=/srv/videoflix/venv/bin:/usr/bin python manage.py rqworker_transcode
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

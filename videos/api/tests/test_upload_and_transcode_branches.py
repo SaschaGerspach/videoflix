@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -59,21 +58,31 @@ def test_transcode_permission_denied(user_pair, video_record, monkeypatch):
     owner, viewer = user_pair
     client = APIClient()
     client.force_authenticate(user=viewer)
-    monkeypatch.setattr("videos.domain.selectors.resolve_public_id", lambda _id: video_record.id)
+    monkeypatch.setattr(
+        "videos.domain.selectors.resolve_public_id", lambda _id: video_record.id
+    )
     response = client.post(f"/api/video/{video_record.id}/transcode/")
     assert response.status_code == status.HTTP_403_FORBIDDEN
-    assert response.json()["errors"]["non_field_errors"][0].startswith("You do not have permission")
+    assert response.json()["errors"]["non_field_errors"][0].startswith(
+        "You do not have permission"
+    )
 
 
-def test_transcode_returns_error_when_enqueue_fails(user_pair, video_record, monkeypatch):
+def test_transcode_returns_error_when_enqueue_fails(
+    user_pair, video_record, monkeypatch
+):
     owner, _ = user_pair
     client = APIClient()
     client.force_authenticate(user=owner)
-    monkeypatch.setattr("videos.domain.selectors.resolve_public_id", lambda _id: video_record.id)
+    monkeypatch.setattr(
+        "videos.domain.selectors.resolve_public_id", lambda _id: video_record.id
+    )
     monkeypatch.setattr("jobs.domain.services.is_transcode_locked", lambda _vid: False)
 
     def raise_error(*args, **kwargs):
-        raise TranscodeError("Video source not found.", status_code=status.HTTP_404_NOT_FOUND)
+        raise TranscodeError(
+            "Video source not found.", status_code=status.HTTP_404_NOT_FOUND
+        )
 
     monkeypatch.setattr("jobs.domain.services.enqueue_transcode", raise_error)
 
@@ -92,7 +101,9 @@ def test_upload_permission_denied(user_pair, video_record):
     owner, viewer = user_pair
     client = APIClient()
     client.force_authenticate(user=viewer)
-    file_obj = SimpleUploadedFile("sample.mp4", b"video-bytes", content_type="video/mp4")
+    file_obj = SimpleUploadedFile(
+        "sample.mp4", b"video-bytes", content_type="video/mp4"
+    )
     response = client.post(
         f"/api/video/{video_record.id}/upload/",
         data={"file": file_obj},
@@ -113,7 +124,9 @@ def test_transcode_success_with_query_parameters(user_pair, video_record, monkey
     owner, _ = user_pair
     client = APIClient()
     client.force_authenticate(user=owner)
-    monkeypatch.setattr("videos.domain.selectors.resolve_public_id", lambda _id: video_record.id)
+    monkeypatch.setattr(
+        "videos.domain.selectors.resolve_public_id", lambda _id: video_record.id
+    )
     monkeypatch.setattr("jobs.domain.services.is_transcode_locked", lambda _vid: False)
     enqueue_calls = []
 
@@ -134,7 +147,9 @@ def test_transcode_success_with_query_parameters(user_pair, video_record, monkey
     assert enqueue_calls == [(video_record.id, ["480p", "720p"])]
 
 
-def test_upload_success_triggers_enqueue(user_pair, video_record, media_root, monkeypatch):
+def test_upload_success_triggers_enqueue(
+    user_pair, video_record, media_root, monkeypatch
+):
     owner, _ = user_pair
     client = APIClient()
     client.force_authenticate(user=owner)
@@ -146,7 +161,9 @@ def test_upload_success_triggers_enqueue(user_pair, video_record, media_root, mo
     def fake_enqueue(video_id, target_resolutions, *, force=False):
         enqueue_calls.append((video_id, list(target_resolutions)))
 
-    monkeypatch.setattr("jobs.domain.services.manifest_exists_for_resolution", fake_manifest_exists)
+    monkeypatch.setattr(
+        "jobs.domain.services.manifest_exists_for_resolution", fake_manifest_exists
+    )
     monkeypatch.setattr("jobs.domain.services.is_transcode_locked", lambda _vid: False)
     monkeypatch.setattr("jobs.domain.services.enqueue_transcode", fake_enqueue)
 
@@ -157,6 +174,8 @@ def test_upload_success_triggers_enqueue(user_pair, video_record, media_root, mo
     )
 
     assert response.status_code == status.HTTP_201_CREATED
-    assert enqueue_calls == [(video_record.id, list(job_services.ALLOWED_TRANSCODE_PROFILES.keys()))]
+    assert enqueue_calls == [
+        (video_record.id, list(job_services.ALLOWED_TRANSCODE_PROFILES.keys()))
+    ]
     stored_path = job_services.get_video_source_path(video_record.id)
     assert stored_path.exists()

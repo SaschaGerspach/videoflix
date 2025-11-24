@@ -3,7 +3,9 @@ from django.core.checks import Warning, register
 
 
 @register()
-def redis_cache_reachable_check(app_configs, **kwargs):  # pragma: no cover - exercised via Django system checks
+def redis_cache_reachable_check(
+    app_configs, **kwargs
+):  # pragma: no cover - exercised via Django system checks
     try:
         default_cache = caches["default"]
     except Exception as exc:
@@ -38,7 +40,9 @@ def redis_cache_reachable_check(app_configs, **kwargs):  # pragma: no cover - ex
 
 
 @register()
-def hls_routing_order_check(app_configs, **kwargs):  # pragma: no cover - executed via system checks
+def hls_routing_order_check(
+    app_configs, **kwargs
+):  # pragma: no cover - executed via system checks
     warnings = []
 
     try:
@@ -54,7 +58,9 @@ def hls_routing_order_check(app_configs, **kwargs):  # pragma: no cover - execut
         ]
 
     manifest_message = "index.m3u8 is not served by VideoManifestView. Check URL order."
-    segment_message = "*.ts is not served by VideoSegmentContentView. Check URL patterns."
+    segment_message = (
+        "*.ts is not served by VideoSegmentContentView. Check URL patterns."
+    )
 
     try:
         manifest_match = resolve("/api/video/1/720p/index.m3u8")
@@ -73,7 +79,10 @@ def hls_routing_order_check(app_configs, **kwargs):  # pragma: no cover - execut
     except Exception as exc:
         warnings.append(Warning(segment_message, id="videoflix.W011", hint=str(exc)))
     else:
-        if getattr(segment_match.func, "view_class", None) is not VideoSegmentContentView:
+        if (
+            getattr(segment_match.func, "view_class", None)
+            is not VideoSegmentContentView
+        ):
             warnings.append(Warning(segment_message, id="videoflix.W011"))
 
     return warnings

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -26,7 +25,9 @@ def media_root(tmp_path, settings):
 def hls_environment(media_root):
     User = get_user_model()
     owner = User.objects.create_user("owner@example.com", "owner@example.com", "pass")
-    viewer = User.objects.create_user("viewer@example.com", "viewer@example.com", "pass")
+    viewer = User.objects.create_user(
+        "viewer@example.com", "viewer@example.com", "pass"
+    )
     video = Video.objects.create(
         owner=owner,
         title="HLS Video",
@@ -35,11 +36,15 @@ def hls_environment(media_root):
         category=VideoCategory.DRAMA,
         is_published=True,
     )
-    VideoStream.objects.create(video=video, resolution="720p", manifest="#EXTM3U\n#EXTINF:10,\n000.ts\n")
+    VideoStream.objects.create(
+        video=video, resolution="720p", manifest="#EXTM3U\n#EXTINF:10,\n000.ts\n"
+    )
 
     rendition_dir = media_root / "hls" / str(video.id) / "720p"
     rendition_dir.mkdir(parents=True, exist_ok=True)
-    (rendition_dir / "index.m3u8").write_text("#EXTM3U\n#EXTINF:10,\n000.ts\n", encoding="utf-8")
+    (rendition_dir / "index.m3u8").write_text(
+        "#EXTM3U\n#EXTINF:10,\n000.ts\n", encoding="utf-8"
+    )
     (rendition_dir / "000.ts").write_bytes(b"segment-bytes")
 
     return {"video": video, "viewer": viewer}

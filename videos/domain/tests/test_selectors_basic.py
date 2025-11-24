@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -20,7 +19,9 @@ def media_root(tmp_path, settings):
 @pytest.fixture
 def owner_user():
     User = get_user_model()
-    return User.objects.create_user(username="owner", email="owner@example.com", password="secret")
+    return User.objects.create_user(
+        username="owner", email="owner@example.com", password="secret"
+    )
 
 
 @pytest.fixture
@@ -46,7 +47,9 @@ def test_filter_queryset_ready_respects_helper(monkeypatch, published_video):
     )
 
     qs = Video.objects.filter(pk__in=[published_video.pk, other.pk])
-    monkeypatch.setattr(selectors, "has_hls_ready", lambda video_id, res: video_id == published_video.id)
+    monkeypatch.setattr(
+        selectors, "has_hls_ready", lambda video_id, res: video_id == published_video.id
+    )
 
     filtered = selectors.filter_queryset_ready(qs, res="480p", ready_only=True)
 
@@ -64,12 +67,16 @@ def test_get_video_stream_prefers_filesystem(media_root, owner_user, settings):
         category=VideoCategory.DRAMA,
         is_published=False,
     )
-    stream = VideoStream.objects.create(video=video, resolution="480p", manifest="#EXTM3U\n")
+    stream = VideoStream.objects.create(
+        video=video, resolution="480p", manifest="#EXTM3U\n"
+    )
     manifest_dir = transcode_services.get_transcode_output_dir(video.id, "480p")
     manifest_dir.mkdir(parents=True, exist_ok=True)
     (manifest_dir / "index.m3u8").write_text("#EXTM3U\n#EXTINF:10,\n", encoding="utf-8")
 
-    result = selectors.get_video_stream(movie_id=video.id, resolution="480p", user=owner_user)
+    result = selectors.get_video_stream(
+        movie_id=video.id, resolution="480p", user=owner_user
+    )
 
     assert "#EXTINF" in result.manifest
     assert result.video == stream.video
@@ -92,7 +99,9 @@ def test_get_video_stream_requires_permission(media_root, owner_user):
     )
 
     with pytest.raises(PermissionError):
-        selectors.get_video_stream(movie_id=video.id, resolution="480p", user=other_user)
+        selectors.get_video_stream(
+            movie_id=video.id, resolution="480p", user=other_user
+        )
 
 
 @pytest.mark.django_db
@@ -105,7 +114,9 @@ def test_get_video_segment_falls_back_to_database(media_root, owner_user):
         category=VideoCategory.DRAMA,
         is_published=False,
     )
-    stream = VideoStream.objects.create(video=video, resolution="480p", manifest="#EXTM3U\n")
+    stream = VideoStream.objects.create(
+        video=video, resolution="480p", manifest="#EXTM3U\n"
+    )
     VideoSegment.objects.create(stream=stream, name="000.ts", content=b"payload")
 
     result = selectors.get_video_segment(

@@ -66,7 +66,9 @@ class VideoUploadView(APIView):
 
         serializer = VideoUploadSerializer(data={"file": upload_candidate})
         if not serializer.is_valid():
-            return Response({"errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST
+            )
 
         user = request.user
 
@@ -78,11 +80,21 @@ class VideoUploadView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        is_owner = video.owner_id is not None and video.owner_id == getattr(user, "id", None)
-        is_admin = getattr(user, "is_staff", False) or getattr(user, "is_superuser", False)
+        is_owner = video.owner_id is not None and video.owner_id == getattr(
+            user, "id", None
+        )
+        is_admin = getattr(user, "is_staff", False) or getattr(
+            user, "is_superuser", False
+        )
         if not (is_owner or is_admin):
             return Response(
-                {"errors": {"non_field_errors": ["You do not have permission to modify this video."]}},
+                {
+                    "errors": {
+                        "non_field_errors": [
+                            "You do not have permission to modify this video."
+                        ]
+                    }
+                },
                 status=status.HTTP_403_FORBIDDEN,
             )
 
@@ -91,7 +103,11 @@ class VideoUploadView(APIView):
         file_size = getattr(file_obj, "size", None)
         if file_size is not None and file_size > max_bytes:
             return Response(
-                {"errors": {"file": [f"File too large. Max size is {max_bytes} bytes."]}},
+                {
+                    "errors": {
+                        "file": [f"File too large. Max size is {max_bytes} bytes."]
+                    }
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -106,7 +122,9 @@ class VideoUploadView(APIView):
         missing_resolutions = [
             resolution
             for resolution in transcode_services.ALLOWED_TRANSCODE_PROFILES
-            if not transcode_services.manifest_exists_for_resolution(video_id, resolution)
+            if not transcode_services.manifest_exists_for_resolution(
+                video_id, resolution
+            )
         ]
 
         if not missing_resolutions:

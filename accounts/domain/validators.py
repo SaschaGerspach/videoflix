@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
@@ -7,10 +7,10 @@ from django.db.models import Q
 from .utils import normalize_email
 
 
-def validate_registration_payload(payload: Dict[str, Any]) -> Dict[str, str]:
+def validate_registration_payload(payload: dict[str, Any]) -> dict[str, str]:
     """Validate registration payload values and return normalized data."""
     payload = payload or {}
-    errors: Dict[str, list[str]] = {}
+    errors: dict[str, list[str]] = {}
 
     raw_email = payload.get("email")
     password = payload.get("password")
@@ -31,13 +31,15 @@ def validate_registration_payload(payload: Dict[str, Any]) -> Dict[str, str]:
     email = normalize_email(str(raw_email))
 
     user_model = get_user_model()
-    if user_model.objects.filter(Q(email__iexact=email) | Q(username__iexact=email)).exists():
+    if user_model.objects.filter(
+        Q(email__iexact=email) | Q(username__iexact=email)
+    ).exists():
         raise ValidationError({"email": ["A user with this email already exists."]})
 
     return {"email": email, "password": password}
 
 
-def validate_activation_params(payload: Dict[str, Any]) -> Dict[str, str]:
+def validate_activation_params(payload: dict[str, Any]) -> dict[str, str]:
     """Validate activation payload consisting of uidb64 and token."""
     payload = payload or {}
     errors: list[str] = []
@@ -59,7 +61,7 @@ def validate_activation_params(payload: Dict[str, Any]) -> Dict[str, str]:
     return {"uidb64": uidb64, "token": token}
 
 
-def validate_login_payload(payload: Dict[str, Any]) -> Dict[str, str]:
+def validate_login_payload(payload: dict[str, Any]) -> dict[str, str]:
     """Validate login payload values and return normalized data."""
     payload = payload or {}
     raw_email = payload.get("email")
@@ -73,7 +75,7 @@ def validate_login_payload(payload: Dict[str, Any]) -> Dict[str, str]:
     return {"email": email, "password": str(password)}
 
 
-def validate_password_reset_payload(payload: Dict[str, Any]) -> Dict[str, str]:
+def validate_password_reset_payload(payload: dict[str, Any]) -> dict[str, str]:
     """Validate password reset payload and ensure user exists."""
     payload = payload or {}
     raw_email = payload.get("email")
@@ -90,18 +92,20 @@ def validate_password_reset_payload(payload: Dict[str, Any]) -> Dict[str, str]:
     return {"email": email}
 
 
-def validate_password_confirm_payload(payload: Dict[str, Any]) -> Dict[str, str]:
+def validate_password_confirm_payload(payload: dict[str, Any]) -> dict[str, str]:
     """Validate password confirmation payload and return new password."""
     payload = payload or {}
     new_password = payload.get("new_password")
     confirm_password = payload.get("confirm_password")
 
-    errors: Dict[str, list[str]] = {}
+    errors: dict[str, list[str]] = {}
 
     if not new_password:
         errors["new_password"] = ["new_password is required."]
     if not confirm_password:
-        errors.setdefault("confirm_password", []).append("confirm_password is required.")
+        errors.setdefault("confirm_password", []).append(
+            "confirm_password is required."
+        )
     if new_password and confirm_password and new_password != confirm_password:
         errors["confirm_password"] = ["Passwords do not match."]
 

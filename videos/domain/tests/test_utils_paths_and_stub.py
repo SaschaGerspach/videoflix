@@ -50,22 +50,22 @@ def test_resolve_source_path_checks_fields(media_root):
     class Dummy:
         def __init__(self):
             self.pk = 77
-            self.source_file = type('F', (), {'path': str(media_root / 'direct.mp4')})
+            self.source_file = type("F", (), {"path": str(media_root / "direct.mp4")})
             self.file = None
 
     dummy = Dummy()
     checked: list[Path] = []
     source_path = Path(dummy.source_file.path)
     source_path.parent.mkdir(parents=True, exist_ok=True)
-    source_path.write_bytes(b'source')
+    source_path.write_bytes(b"source")
 
     result = utils.resolve_source_path(dummy, checked_paths=checked)
     assert result == source_path
     assert source_path in checked
 
-    uploads_path = Path(media_root) / 'uploads' / 'videos' / '88.mp4'
+    uploads_path = Path(media_root) / "uploads" / "videos" / "88.mp4"
     uploads_path.parent.mkdir(parents=True, exist_ok=True)
-    uploads_path.write_bytes(b'alt')
-    dummy2 = type('Obj', (), {'pk': 88})()
+    uploads_path.write_bytes(b"alt")
+    dummy2 = type("Obj", (), {"pk": 88})()
     fallback = utils.resolve_source_path(dummy2, checked_paths=checked)
     assert fallback == uploads_path

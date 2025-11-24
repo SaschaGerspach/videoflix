@@ -37,7 +37,15 @@ def test_resolve_source_path_collects_candidates(tmp_path):
     source_path.write_bytes(b"video")
 
     checked: list[Path] = []
-    video = SimpleNamespace(pk=5, source_file=None, file=None, video_file=None, video=None, source=None, path=None)
+    video = SimpleNamespace(
+        pk=5,
+        source_file=None,
+        file=None,
+        video_file=None,
+        video=None,
+        source=None,
+        path=None,
+    )
 
     resolved = utils.resolve_source_path(video, checked_paths=checked)
     assert resolved == source_path

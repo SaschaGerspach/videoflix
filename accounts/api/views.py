@@ -1,22 +1,34 @@
+import logging
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.http import HttpResponse
+from django.utils.encoding import force_bytes
+from django.utils.http import urlsafe_base64_encode
+from django.utils.html import escape
 from rest_framework import status
-from rest_framework.decorators import (api_view, authentication_classes,
-                                       permission_classes, throttle_classes)
+from rest_framework.decorators import (
+    api_view,
+    authentication_classes,
+    permission_classes,
+    throttle_classes,
+)
 from rest_framework.exceptions import ParseError
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
-from accounts.api.serializers import (ActivationSerializer, LoginSerializer,
-                                      LogoutSerializer,
-                                      PasswordConfirmSerializer,
-                                      PasswordResetSerializer,
-                                      RegistrationSerializer,
-                                      TokenRefreshSerializer,
-                                      format_validation_error)
+from accounts.api.serializers import (
+    ActivationSerializer,
+    LoginSerializer,
+    LogoutSerializer,
+    PasswordConfirmSerializer,
+    PasswordResetSerializer,
+    RegistrationSerializer,
+    TokenRefreshSerializer,
+    format_validation_error,
+)
 from accounts.api.spectacular import (
     ActivationRequestSerializer,
     LoginRequestSerializer,
@@ -24,13 +36,20 @@ from accounts.api.spectacular import (
     PasswordResetRequestSerializer,
     RegistrationRequestSerializer,
 )
-from accounts.domain.services import (AuthenticationError, activate_user,
-                                      confirm_password_reset,
-                                      create_inactive_user, login_user,
-                                      logout_user, refresh_access_token,
-                                      send_activation_email,
-                                      send_password_reset_email)
+from accounts.domain.services import (
+    AuthenticationError,
+    activate_user,
+    confirm_password_reset,
+    create_inactive_user,
+    login_user,
+    logout_user,
+    refresh_access_token,
+    send_activation_email,
+    send_password_reset_email,
+)
 from drf_spectacular.utils import OpenApiExample, extend_schema
+
+logger = logging.getLogger("videoflix")
 
 
 ERROR_RESPONSE_REF = {"$ref": "#/components/schemas/ErrorResponse"}
@@ -50,7 +69,9 @@ def _base_cookie_kwargs(request):
 
     if request.is_secure():
         kwargs["secure"] = getattr(settings, "DEV_COOKIE_SECURE", kwargs["secure"])
-        kwargs["samesite"] = getattr(settings, "DEV_COOKIE_SAMESITE", kwargs["samesite"])
+        kwargs["samesite"] = getattr(
+            settings, "DEV_COOKIE_SAMESITE", kwargs["samesite"]
+        )
 
     return kwargs
 
@@ -64,7 +85,10 @@ def _base_cookie_kwargs(request):
             "properties": {
                 "user": {
                     "type": "object",
-                    "properties": {"id": {"type": "integer"}, "email": {"type": "string"}},
+                    "properties": {
+                        "id": {"type": "integer"},
+                        "email": {"type": "string"},
+                    },
                     "required": ["id", "email"],
                 },
                 "token": {"type": "string"},
@@ -79,20 +103,28 @@ def _base_cookie_kwargs(request):
 @authentication_classes([])
 @permission_classes([AllowAny])
 def register(request):
-    # request.data enthält bereits das geparste JSON
+    # request.data already contains the parsed JSON payload.
     serializer = RegistrationSerializer(request.data)
 
     if not serializer.is_valid():
-        return Response({"errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {"errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST
+        )
 
     data = serializer.validated_data
     user = create_inactive_user(email=data["email"], password=data["password"])
-    token = send_activation_email(user)
+    token, email_sent = send_activation_email(user, fail_silently=True)
+    uidb64 = urlsafe_base64_encode(force_bytes(user.pk))
 
-    return Response(
-        {"user": {"id": user.pk, "email": user.email}, "token": token},
-        status=status.HTTP_201_CREATED,
-    )
+    response_data = {
+        "user": {"id": user.pk, "email": user.email},
+        "uidb64": uidb64,
+        "token": token,
+    }
+    if not email_sent:
+        logger.warning("Activation email suppressed after creating user_id=%s", user.pk)
+
+    return Response(response_data, status=status.HTTP_201_CREATED)
 
 
 @extend_schema(
@@ -105,7 +137,10 @@ def register(request):
                 "detail": {"type": "string"},
                 "user": {
                     "type": "object",
-                    "properties": {"id": {"type": "integer"}, "username": {"type": "string"}},
+                    "properties": {
+                        "id": {"type": "integer"},
+                        "username": {"type": "string"},
+                    },
                 },
             },
         },
@@ -139,15 +174,20 @@ def login(request):
     serializer = LoginSerializer(request.data)
 
     if not serializer.is_valid():
-        return Response({"errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {"errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST
+        )
 
     data = serializer.validated_data
 
     try:
-        user, tokens = login_user(
-            email=data["email"], password=data["password"])
+        user, tokens = login_user(email=data["email"], password=data["password"])
     except AuthenticationError as exc:
-        status_code = status.HTTP_403_FORBIDDEN if exc.reason == "inactive" else status.HTTP_400_BAD_REQUEST
+        status_code = (
+            status.HTTP_403_FORBIDDEN
+            if exc.reason == "inactive"
+            else status.HTTP_400_BAD_REQUEST
+        )
         return Response({"errors": format_validation_error(exc)}, status=status_code)
 
     response = Response(
@@ -164,10 +204,8 @@ def login(request):
     refresh_cookie_kwargs = _base_cookie_kwargs(request)
     refresh_cookie_kwargs["max_age"] = tokens["refresh_max_age"]
 
-    response.set_cookie(
-        "access_token", tokens["access"], **access_cookie_kwargs)
-    response.set_cookie(
-        "refresh_token", tokens["refresh"], **refresh_cookie_kwargs)
+    response.set_cookie("access_token", tokens["access"], **access_cookie_kwargs)
+    response.set_cookie("refresh_token", tokens["refresh"], **refresh_cookie_kwargs)
 
     return response
 
@@ -180,8 +218,7 @@ if hasattr(login, "cls"):
 @extend_schema(
     tags=["Auth"],
     request=None,
-    responses={200: {"type": "object", "properties": {
-        "detail": {"type": "string"}}}},
+    responses={200: {"type": "object", "properties": {"detail": {"type": "string"}}}},
     auth=[{"cookieJwtAuth": []}],
 )
 @api_view(["POST"])
@@ -198,13 +235,17 @@ def logout_view(request):
 
     serializer = LogoutSerializer(data)
     if not serializer.is_valid():
-        return Response({"errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {"errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST
+        )
 
     refresh_token = request.COOKIES.get("refresh_token")
     try:
         logout_user(refresh_token)
     except ValidationError as exc:
-        return Response({"errors": format_validation_error(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {"errors": format_validation_error(exc)}, status=status.HTTP_400_BAD_REQUEST
+        )
 
     response = Response(
         {
@@ -224,8 +265,10 @@ def logout_view(request):
     tags=["Auth"],
     request=None,
     responses={
-        200: {"type": "object",
-              "properties": {"detail": {"type": "string"}, "access": {"type": "string"}}},
+        200: {
+            "type": "object",
+            "properties": {"detail": {"type": "string"}, "access": {"type": "string"}},
+        },
         400: ERROR_RESPONSE_REF,
         401: ERROR_RESPONSE_REF,
     },
@@ -258,7 +301,9 @@ def token_refresh(request):
 
     serializer = TokenRefreshSerializer(data)
     if not serializer.is_valid():
-        return Response({"errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {"errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST
+        )
 
     refresh_token = request.COOKIES.get("refresh_token")
     if not refresh_token:
@@ -318,13 +363,20 @@ def password_reset(request):
 
     serializer = PasswordResetSerializer(data)
     if not serializer.is_valid():
-        return Response({"errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {"errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST
+        )
 
     email = serializer.validated_data["email"]
-    send_password_reset_email(email=email)
+    token, email_sent = send_password_reset_email(email=email, fail_silently=True)
+    if not email_sent:
+        logger.warning(
+            "Password reset email suppressed after creating reset token for email=%s",
+            email,
+        )
 
     return Response(
-        {"detail": "An email has been sent to reset your password."},
+        {"detail": "If this email exists, a password reset link has been sent."},
         status=status.HTTP_200_OK,
     )
 
@@ -360,7 +412,9 @@ def password_confirm(request, uidb64: str, token: str):
 
     serializer = PasswordConfirmSerializer(data)
     if not serializer.is_valid():
-        return Response({"errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {"errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST
+        )
 
     try:
         confirm_password_reset(
@@ -369,7 +423,9 @@ def password_confirm(request, uidb64: str, token: str):
             new_password=serializer.validated_data["new_password"],
         )
     except ValidationError as exc:
-        return Response({"errors": format_validation_error(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {"errors": format_validation_error(exc)}, status=status.HTTP_400_BAD_REQUEST
+        )
 
     return Response(
         {"detail": "Your Password has been successfully reset."},
@@ -407,13 +463,87 @@ class ActivateAccountView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        success, errors = self._activate_user(data)
+        if not success:
+            return Response({"errors": errors}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"message": "Account activated."}, status=status.HTTP_200_OK)
+
+    def get(self, request, uidb64: str, token: str):
+        data = {"uidb64": uidb64, "token": token}
+        success, errors = self._activate_user(data)
+        accepted_format = getattr(
+            getattr(request, "accepted_renderer", None), "format", None
+        )
+        accepts_html = "text/html" in (request.META.get("HTTP_ACCEPT") or "")
+        wants_html = accepted_format == "html" or accepts_html
+
+        if wants_html:
+            login_url = self._get_login_url()
+            if success:
+                content = self._render_activation_result(
+                    title="Account erfolgreich aktiviert",
+                    message="Du kannst dich jetzt einloggen.",
+                    login_url=login_url,
+                )
+                return HttpResponse(
+                    content, status=status.HTTP_200_OK, content_type="text/html"
+                )
+            content = self._render_activation_result(
+                title="Aktivierung fehlgeschlagen",
+                message="Der Link ist ungueltig oder abgelaufen.",
+                login_url=login_url,
+            )
+            return HttpResponse(
+                content, status=status.HTTP_400_BAD_REQUEST, content_type="text/html"
+            )
+
+        if success:
+            return Response(
+                {"message": "Account successfully activated."},
+                status=status.HTTP_200_OK,
+            )
+        return Response(
+            {"errors": ["Invalid or expired activation link."]},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    def _activate_user(self, data: dict):
         serializer = ActivationSerializer(data)
         if not serializer.is_valid():
-            return Response({"errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
-
+            return False, serializer.errors
         try:
             activate_user(**serializer.validated_data)
         except ValidationError as exc:
-            return Response({"errors": format_validation_error(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            return False, format_validation_error(exc)
+        return True, None
 
-        return Response({"message": "Account activated."}, status=status.HTTP_200_OK)
+    def _get_login_url(self) -> str:
+        return "http://localhost:5500/pages/auth/login.html"
+
+    def _render_activation_result(
+        self, title: str, message: str, login_url: str
+    ) -> str:
+        safe_title = escape(title)
+        safe_message = escape(message)
+        safe_login = escape(login_url)
+        return (
+            "<!DOCTYPE html>"
+            "<html lang='de'>"
+            "<head>"
+            "<meta charset='utf-8'/>"
+            "<title>Videoflix</title>"
+            "<style>"
+            "body{font-family:Arial,Helvetica,sans-serif;margin:40px;line-height:1.6;}"
+            "h1{color:#1f2933;}"
+            "p{margin:16px 0;}"
+            "a.button{display:inline-block;padding:10px 16px;background:#1d4ed8;"
+            "color:#fff;text-decoration:none;border-radius:4px;}"
+            "</style>"
+            "</head>"
+            "<body>"
+            f"<h1>{safe_title}</h1>"
+            f"<p>{safe_message}</p>"
+            f"<a class='button' href='{safe_login}'>Zum Login</a>"
+            "</body>"
+            "</html>"
+        )

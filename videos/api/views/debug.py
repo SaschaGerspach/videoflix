@@ -1,5 +1,6 @@
-from __future__ import annotations
+"""Debug-only API surfaces for inspecting manifests, renditions, and thumbnails."""
 
+from __future__ import annotations
 
 from pathlib import Path
 
@@ -15,6 +16,8 @@ from videos.domain.selectors import resolve_public_id
 
 
 class HLSManifestDebugView(APIView):
+    """Return file metadata for a manifest without serving the document."""
+
     permission_classes = [AllowAny]
 
     def get(self, request, pub: int, res: str):
@@ -30,13 +33,7 @@ class HLSManifestDebugView(APIView):
         exists = False
         size = 0
         if real_id is not None:
-            path = (
-                Path(settings.MEDIA_ROOT)
-                / "hls"
-                / str(real_id)
-                / res
-                / "index.m3u8"
-            )
+            path = Path(settings.MEDIA_ROOT) / "hls" / str(real_id) / res / "index.m3u8"
             exists = path.exists()
             if exists:
                 size = len(path.read_bytes())
@@ -51,6 +48,8 @@ class HLSManifestDebugView(APIView):
 
 
 class AllowedRenditionsDebugView(APIView):
+    """Expose the currently allowed rendition set for quick inspection."""
+
     permission_classes = [AllowAny]
 
     def get(self, request):
@@ -68,6 +67,8 @@ class AllowedRenditionsDebugView(APIView):
 
 
 class ThumbsDebugView(APIView):
+    """Surface basic thumbnail file metadata while in DEBUG mode."""
+
     permission_classes = [AllowAny]
 
     def get(self, request, public: int):
@@ -88,7 +89,7 @@ class ThumbsDebugView(APIView):
             thumb_path = thumb_utils.get_thumbnail_path(real_id)
             exists = thumb_path.exists()
             size = thumb_path.stat().st_size if exists else None
-            url = thumb_utils.get_thumbnail_url(request, real_id) or ""
+            url = thumb_utils.get_thumbnail_url(real_id, request=request) or ""
 
         return Response(
             {

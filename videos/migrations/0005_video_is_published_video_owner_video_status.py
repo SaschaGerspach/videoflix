@@ -8,24 +8,30 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('videos', '0004_videosegment'),
+        ("videos", "0004_videosegment"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='video',
-            name='is_published',
+            model_name="video",
+            name="is_published",
             field=models.BooleanField(default=False),
         ),
         migrations.AddField(
-            model_name='video',
-            name='owner',
-            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='videos', to=settings.AUTH_USER_MODEL),
+            model_name="video",
+            name="owner",
+            field=models.ForeignKey(
+                blank=True,
+                null=True,
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="videos",
+                to=settings.AUTH_USER_MODEL,
+            ),
         ),
         migrations.AddField(
-            model_name='video',
-            name='status',
-            field=models.CharField(default='pending', max_length=20),
+            model_name="video",
+            name="status",
+            field=models.CharField(default="pending", max_length=20),
         ),
     ]

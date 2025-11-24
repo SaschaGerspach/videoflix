@@ -3,7 +3,8 @@ from __future__ import annotations
 import importlib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from typing import Any
+from collections.abc import Iterable, Sequence
 
 from django.urls import Resolver404, resolve
 from rest_framework.test import APIRequestFactory, force_authenticate
@@ -118,8 +119,12 @@ def format_diagnose_backend_text(report: dict[str, Any], verbose: bool) -> str:
         message += f" warnings={len(warnings)}"
     lines.append(message)
     if verbose:
-        lines.append(f"   allowed_renditions={settings_summary.get('allowed_renditions')}")
-        lines.append(f"   canonical_renditions={settings_summary.get('canonical_renditions')}")
+        lines.append(
+            f"   allowed_renditions={settings_summary.get('allowed_renditions')}"
+        )
+        lines.append(
+            f"   canonical_renditions={settings_summary.get('canonical_renditions')}"
+        )
         lines.append(f"   static_url={settings_summary.get('static_url')}")
         lines.append(f"   redis_url={settings_summary.get('redis_url')}")
         lines.append(f"   rq={settings_summary.get('rq')}")
@@ -127,7 +132,9 @@ def format_diagnose_backend_text(report: dict[str, Any], verbose: bool) -> str:
             lines.append(f"   warning: {warning}")
 
     videos = report.get("videos", [])
-    resolved_count = sum(1 for item in videos if "real" in item and not item.get("error"))
+    resolved_count = sum(
+        1 for item in videos if "real" in item and not item.get("error")
+    )
     videos_ok = resolved_count == len(videos)
     icon = "✅" if videos_ok else "❌"
     lines.append(f"{icon} Videos: {resolved_count}/{len(videos)} resolved")
@@ -161,7 +168,9 @@ def format_diagnose_backend_text(report: dict[str, Any], verbose: bool) -> str:
     paths = routing.get("paths", [])
     routing_failures = routing.get("failures", 0)
     icon = "✅" if routing_failures == 0 else "❌"
-    lines.append(f"{icon} Routing: {len(paths) - routing_failures}/{len(paths)} paths ok")
+    lines.append(
+        f"{icon} Routing: {len(paths) - routing_failures}/{len(paths)} paths ok"
+    )
     if verbose:
         for path_info in paths:
             if path_info.get("ok"):
@@ -188,9 +197,15 @@ def format_diagnose_backend_text(report: dict[str, Any], verbose: bool) -> str:
     manifest_header = headers_block.get("manifest") or {}
     segment_header = headers_block.get("segment") or {}
     header_entries = [
-        entry for entry in (manifest_header, segment_header) if isinstance(entry, dict) and entry
+        entry
+        for entry in (manifest_header, segment_header)
+        if isinstance(entry, dict) and entry
     ]
-    headers_ok = all(entry.get("ok", True) for entry in header_entries) if header_entries else True
+    headers_ok = (
+        all(entry.get("ok", True) for entry in header_entries)
+        if header_entries
+        else True
+    )
     icon = "✅" if headers_ok else "⚠️"
     header_message = (
         f"{icon} Headers: manifest={manifest_header.get('ctype')} "
@@ -237,7 +252,8 @@ def run_heal_hls_index(
     if not public_ids:
         return {
             "videos": [],
-            "warnings": discovery_warnings + ["No videos to process (public IDs missing or discovery empty)."],
+            "warnings": discovery_warnings
+            + ["No videos to process (public IDs missing or discovery empty)."],
         }
 
     stream_fields = _stream_fields()
@@ -275,7 +291,9 @@ def run_heal_hls_index(
         resolution_set = _normalise_resolutions(settings, resolutions)
         stream_cache = {
             stream.resolution: stream
-            for stream in VideoStream.objects.filter(video_id=real_id, resolution__in=resolution_set)
+            for stream in VideoStream.objects.filter(
+                video_id=real_id, resolution__in=resolution_set
+            )
         }
 
         ready_any = False
@@ -311,19 +329,25 @@ def run_heal_hls_index(
                 if info.has_files:
                     entry["actions"].append(f"create_stream {resolution}")
                     if write:
-                        error = _create_stream(real_id, resolution, manifest_text, info, stream_fields)
+                        error = _create_stream(
+                            real_id, resolution, manifest_text, info, stream_fields
+                        )
                         if error:
                             entry["errors"].append(error)
                 continue
 
             if not info.exists:
-                entry["warnings"].append(f"stale stream {resolution}: manifest missing.")
+                entry["warnings"].append(
+                    f"stale stream {resolution}: manifest missing."
+                )
                 continue
             if info.is_stub:
                 entry["warnings"].append(f"stale stream {resolution}: manifest stub.")
                 continue
             if info.ts_count == 0:
-                entry["warnings"].append(f"stale stream {resolution}: no segments on disk.")
+                entry["warnings"].append(
+                    f"stale stream {resolution}: no segments on disk."
+                )
                 continue
 
             update_needed = False
@@ -347,10 +371,12 @@ def run_heal_hls_index(
                         if "manifest" in update_fields and manifest_text is not None:
                             stream.manifest = manifest_text
                         if "segments" in update_fields:
-                            setattr(stream, "segments", info.ts_count)
+                            stream.segments = info.ts_count
                         stream.save(update_fields=update_fields)
                     except Exception as exc:  # pragma: no cover - defensive guard
-                        entry["errors"].append(f"{resolution}: stream update failed ({exc})")
+                        entry["errors"].append(
+                            f"{resolution}: stream update failed ({exc})"
+                        )
 
         if rebuild_master and ready_any:
             if write:
@@ -362,7 +388,9 @@ def run_heal_hls_index(
                         msg = f"Master rebuild failed: {exc}"
                         entry["warnings"].append(msg)
                 else:
-                    entry["warnings"].append("Master rebuild skipped: helper unavailable.")
+                    entry["warnings"].append(
+                        "Master rebuild skipped: helper unavailable."
+                    )
             else:
                 entry["actions"].append("rebuild_master")
                 entry["warnings"].append("Master rebuild skipped (dry-run).")
@@ -376,7 +404,9 @@ def run_heal_hls_index(
                     entry["warnings"].append(f"Thumbnail generation error: {exc}")
                 else:
                     if generated is None:
-                        entry["warnings"].append("Thumbnail generation did not produce a file.")
+                        entry["warnings"].append(
+                            "Thumbnail generation did not produce a file."
+                        )
                     else:
                         entry["actions"].append("generate_thumb")
             else:
@@ -398,7 +428,9 @@ def format_heal_hls_index_text(result: dict[str, Any]) -> str:
         elif item["warnings"]:
             icon = "⚠️"
         actions = ", ".join(item["actions"]) if item["actions"] else "no-op"
-        lines.append(f"{icon} video public={item['public']} real={item.get('real')} actions={actions}")
+        lines.append(
+            f"{icon} video public={item['public']} real={item.get('real')} actions={actions}"
+        )
         for warn in item["warnings"]:
             lines.append(f"   warning: {warn}")
         for err in item["errors"]:
@@ -453,11 +485,15 @@ def _collect_settings_summary(settings, media_root: Path) -> dict[str, Any]:
         "warnings": [],
     }
     if not canonical:
-        summary["warnings"].append("No canonical renditions configured; using fallback list.")
+        summary["warnings"].append(
+            "No canonical renditions configured; using fallback list."
+        )
     return summary
 
 
-def _collect_videos(settings, explicit_public: Sequence[int] | None, resolution_hint: str) -> dict[str, Any]:
+def _collect_videos(
+    settings, explicit_public: Sequence[int] | None, resolution_hint: str
+) -> dict[str, Any]:
     failures = 0
     warnings: list[str] = []
     items: list[dict[str, Any]] = []
@@ -578,7 +614,9 @@ def _segment_name_candidates(name: str) -> list[str]:
     return candidates
 
 
-def _inspect_filesystem(settings, media_root: Path, resolved, resolutions: Sequence[str]) -> dict[str, Any]:
+def _inspect_filesystem(
+    settings, media_root: Path, resolved, resolutions: Sequence[str]
+) -> dict[str, Any]:
     entries: list[dict[str, Any]] = []
     failures = 0
     warnings: list[str] = []
@@ -632,7 +670,9 @@ def _inspect_filesystem(settings, media_root: Path, resolved, resolutions: Seque
             entry["is_stub"] = bool(stub_flag)
 
             try:
-                manifest_text = manifest_path.read_text(encoding="utf-8", errors="ignore")
+                manifest_text = manifest_path.read_text(
+                    encoding="utf-8", errors="ignore"
+                )
             except OSError as exc:
                 entry.setdefault("errors", []).append(f"Manifest read failed: {exc}")
                 manifest_text = ""
@@ -678,7 +718,9 @@ def _inspect_filesystem(settings, media_root: Path, resolved, resolutions: Seque
                 entry["min_ts_bytes"] = min(available_sizes)
                 entry["max_ts_bytes"] = max(available_sizes)
 
-            entry["failure"] = entry["failure"] or entry["ts_count"] == 0 or bool(entry["is_stub"])
+            entry["failure"] = (
+                entry["failure"] or entry["ts_count"] == 0 or bool(entry["is_stub"])
+            )
             if entry["failure"]:
                 failures += 1
 
@@ -733,7 +775,9 @@ def _resolve_path(path: str, expected_view) -> dict[str, Any]:
     return result
 
 
-def _invoke_views(fs_entries: Sequence[dict[str, Any]]) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
+def _invoke_views(
+    fs_entries: Sequence[dict[str, Any]],
+) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
     if not fs_entries:
         view_info = {
             "failures": 0,
@@ -762,7 +806,9 @@ def _invoke_views(fs_entries: Sequence[dict[str, Any]]) -> tuple[dict[str, Any],
     if sample is None:
         view_info = {
             "failures": 0,
-            "warnings": ["View checks skipped: no ready manifest with segments on disk."],
+            "warnings": [
+                "View checks skipped: no ready manifest with segments on disk."
+            ],
         }
         return view_info, {}, []
 
@@ -781,7 +827,9 @@ def _invoke_views(fs_entries: Sequence[dict[str, Any]]) -> tuple[dict[str, Any],
     factory = APIRequestFactory()
     auth_user = _DiagnosticsUser()
 
-    manifest_request = factory.get(f"/api/video/{sample.public_id}/{sample.resolution}/index.m3u8")
+    manifest_request = factory.get(
+        f"/api/video/{sample.public_id}/{sample.resolution}/index.m3u8"
+    )
     force_authenticate(manifest_request, user=auth_user)
     manifest_response = None
     manifest_status: int | None = None
@@ -797,7 +845,10 @@ def _invoke_views(fs_entries: Sequence[dict[str, Any]]) -> tuple[dict[str, Any],
         manifest_error = exc
 
     if manifest_error is not None:
-        results["manifest"] = {"ok": False, "error": f"View raised exception: {manifest_error}"}
+        results["manifest"] = {
+            "ok": False,
+            "error": f"View raised exception: {manifest_error}",
+        }
         failures += 1
         record = _baseline_header_record()
         record["ok"] = False
@@ -846,7 +897,10 @@ def _invoke_views(fs_entries: Sequence[dict[str, Any]]) -> tuple[dict[str, Any],
         segment_error = exc
 
     if segment_error is not None:
-        results["segment"] = {"ok": False, "error": f"View raised exception: {segment_error}"}
+        results["segment"] = {
+            "ok": False,
+            "error": f"View raised exception: {segment_error}",
+        }
         failures += 1
         record = _baseline_header_record()
         record["ok"] = False
@@ -941,7 +995,9 @@ def _evaluate_headers(
         lower_ctype = ctype.lower()
         if not any(token in lower_ctype for token in expected_tokens):
             expected = ", ".join(expected_tokens)
-            add_note(f"{label}: Content-Type '{ctype}' lacks expected token(s): {expected}.")
+            add_note(
+                f"{label}: Content-Type '{ctype}' lacks expected token(s): {expected}."
+            )
 
     disposition = _response_header(response, "Content-Disposition")
     record["content_disposition"] = disposition
@@ -1035,7 +1091,9 @@ def _maybe_check_cors_options(
     if missing:
         note = f"Missing: {', '.join(missing)}"
         info["notes"] = [note]
-        warnings.append(f"CORS headers missing for manifest OPTIONS: {', '.join(missing)}.")
+        warnings.append(
+            f"CORS headers missing for manifest OPTIONS: {', '.join(missing)}."
+        )
     if hasattr(response, "close"):
         try:
             response.close()
@@ -1045,7 +1103,9 @@ def _maybe_check_cors_options(
     return info, warnings
 
 
-def _collect_public_ids(settings, requested_public, resolutions) -> tuple[list[int], list[str]]:
+def _collect_public_ids(
+    settings, requested_public, resolutions
+) -> tuple[list[int], list[str]]:
     warnings: list[str] = []
     public_ids: list[int] = []
 
@@ -1180,7 +1240,8 @@ def _stream_fields() -> set[str]:
     return {
         field.name
         for field in VideoStream._meta.get_fields()
-        if getattr(field, "concrete", False) and not getattr(field, "many_to_many", False)
+        if getattr(field, "concrete", False)
+        and not getattr(field, "many_to_many", False)
     }
 
 

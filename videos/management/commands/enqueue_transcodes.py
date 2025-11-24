@@ -1,7 +1,9 @@
+"""Command to enqueue explicit transcode jobs for selected videos."""
+
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable, List, Sequence
+from collections.abc import Iterable, Sequence
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
@@ -33,6 +35,8 @@ def _unique(items: Iterable[int]) -> list[int]:
 
 
 class Command(BaseCommand):
+    """Management command that schedules renditions for a curated set of IDs."""
+
     help = "Enqueue HLS transcode jobs for the specified videos."
 
     def add_arguments(self, parser):
@@ -70,6 +74,7 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        """Inspect requested identifiers and enqueue/skip per CLI options."""
         public_inputs = _flatten(options.get("public_ids"))
         real_inputs = _flatten(options.get("real_ids"))
         resolution: str = options["res"]
@@ -79,22 +84,28 @@ class Command(BaseCommand):
         if not public_inputs and not real_inputs:
             raise CommandError("Provide at least one --public or --real identifier.")
 
-        public_mappings: List[tuple[int, int]] = []
+        public_mappings: list[tuple[int, int]] = []
         resolved_real_ids: list[int] = []
 
         for public_id in public_inputs:
             try:
                 real_id = resolve_public_id(public_id)
             except Video.DoesNotExist as exc:
-                raise CommandError(f"Public id {public_id} does not map to a video.") from exc
+                raise CommandError(
+                    f"Public id {public_id} does not map to a video."
+                ) from exc
             public_mappings.append((public_id, real_id))
             resolved_real_ids.append(real_id)
 
         if real_inputs:
             existing_ids = set(
-                Video.objects.filter(pk__in=set(real_inputs)).values_list("pk", flat=True)
+                Video.objects.filter(pk__in=set(real_inputs)).values_list(
+                    "pk", flat=True
+                )
             )
-            missing = [real_id for real_id in real_inputs if real_id not in existing_ids]
+            missing = [
+                real_id for real_id in real_inputs if real_id not in existing_ids
+            ]
             if missing:
                 missing_str = ", ".join(str(mid) for mid in missing)
                 raise CommandError(f"Video(s) not found for real id(s): {missing_str}")
@@ -105,7 +116,9 @@ class Command(BaseCommand):
             self.stdout.write("No videos to process.")
             return
 
-        videos = {video.pk: video for video in Video.objects.filter(pk__in=target_real_ids)}
+        videos = {
+            video.pk: video for video in Video.objects.filter(pk__in=target_real_ids)
+        }
         missing_videos = [vid for vid in target_real_ids if vid not in videos]
         if missing_videos:
             raise CommandError(
@@ -121,11 +134,15 @@ class Command(BaseCommand):
                     status = "stub" if is_stub_manifest(manifest_path) else "existing"
                 else:
                     status = "missing"
-                self.stdout.write(f"{action_prefix} {resolution} for {real_id} ({status})")
+                self.stdout.write(
+                    f"{action_prefix} {resolution} for {real_id} ({status})"
+                )
             if public_mappings:
                 public_part = ", ".join(str(pub) for pub, _ in public_mappings)
                 real_part = ", ".join(str(real) for _, real in public_mappings)
-                self.stdout.write(f"Mapping: {public_part} (public) -> {real_part} (real)")
+                self.stdout.write(
+                    f"Mapping: {public_part} (public) -> {real_part} (real)"
+                )
             if real_inputs:
                 explicit = ", ".join(str(rid) for rid in _unique(real_inputs))
                 self.stdout.write(f"Explicit real ids: {explicit}")
@@ -155,9 +172,7 @@ class Command(BaseCommand):
                 )
                 continue
 
-            if force and manifest_exists and not stub_manifest:
-                self._purge_rendition_dir(rendition_dir)
-            elif stub_manifest:
+            if force and manifest_exists and not stub_manifest or stub_manifest:
                 self._purge_rendition_dir(rendition_dir)
 
             try:
@@ -188,10 +203,14 @@ class Command(BaseCommand):
             )
         if real_inputs:
             explicit = ", ".join(str(rid) for rid in _unique(real_inputs))
-            self.stdout.write(f"{action_prefix} {resolution} for explicit real ids: {explicit}")
+            self.stdout.write(
+                f"{action_prefix} {resolution} for explicit real ids: {explicit}"
+            )
 
     def _manifest_path(self, real_id: int, resolution: str) -> Path:
-        return Path(settings.MEDIA_ROOT) / "hls" / str(real_id) / resolution / "index.m3u8"
+        return (
+            Path(settings.MEDIA_ROOT) / "hls" / str(real_id) / resolution / "index.m3u8"
+        )
 
     def _purge_rendition_dir(self, rendition_dir: Path) -> None:
         if not rendition_dir.exists():

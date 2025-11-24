@@ -18,6 +18,12 @@ class Video(models.Model):
     category = models.CharField(max_length=32, choices=VideoCategory.choices)
     is_published = models.BooleanField(default=False)
     status = models.CharField(max_length=20, default="pending")
+    width = models.IntegerField(null=True, blank=True)
+    height = models.IntegerField(null=True, blank=True)
+    duration_seconds = models.IntegerField(null=True, blank=True)
+    video_bitrate_kbps = models.IntegerField(null=True, blank=True)
+    audio_bitrate_kbps = models.IntegerField(null=True, blank=True)
+    codec_name = models.CharField(max_length=64, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -45,7 +51,9 @@ class VideoStream(models.Model):
 
 
 class VideoSegment(models.Model):
-    stream = models.ForeignKey(VideoStream, on_delete=models.CASCADE, related_name="segments")
+    stream = models.ForeignKey(
+        VideoStream, on_delete=models.CASCADE, related_name="segments"
+    )
     name = models.CharField(max_length=255)
     content = models.BinaryField()
     created_at = models.DateTimeField(auto_now_add=True)

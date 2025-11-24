@@ -20,11 +20,15 @@ def test_run_diagnose_backend_structure(settings, tmp_path):
         category=VideoCategory.DRAMA,
         is_published=True,
     )
-    VideoStream.objects.create(video=video, resolution="720p", manifest="#EXTM3U\n#EXTINF:10,\n000.ts\n")
+    VideoStream.objects.create(
+        video=video, resolution="720p", manifest="#EXTM3U\n#EXTINF:10,\n000.ts\n"
+    )
 
     hls_dir = media_root / "hls" / str(video.pk) / "720p"
     hls_dir.mkdir(parents=True, exist_ok=True)
-    (hls_dir / "index.m3u8").write_text("#EXTM3U\n#EXTINF:10,\n000.ts\n", encoding="utf-8")
+    (hls_dir / "index.m3u8").write_text(
+        "#EXTM3U\n#EXTINF:10,\n000.ts\n", encoding="utf-8"
+    )
     (hls_dir / "000.ts").write_bytes(b"segment-bytes")
 
     report = run_diagnose_backend(
@@ -34,7 +38,16 @@ def test_run_diagnose_backend_structure(settings, tmp_path):
         requested_res=["720p"],
     )
 
-    for key in {"settings", "videos", "fs_checks", "routing", "views", "headers", "debug", "summary"}:
+    for key in {
+        "settings",
+        "videos",
+        "fs_checks",
+        "routing",
+        "views",
+        "headers",
+        "debug",
+        "summary",
+    }:
         assert key in report
     assert report["videos"]
     assert "failures" in report["summary"]
@@ -53,12 +66,16 @@ def test_run_heal_hls_index_dry_run(settings, tmp_path):
         category=VideoCategory.DRAMA,
         is_published=True,
     )
-    VideoStream.objects.create(video=video, resolution="720p", manifest="#EXTM3U\n#EXTINF:10,\n000.ts\n")
+    VideoStream.objects.create(
+        video=video, resolution="720p", manifest="#EXTM3U\n#EXTINF:10,\n000.ts\n"
+    )
 
     for res in ("720p", "480p"):
         rendition_dir = media_root / "hls" / str(video.pk) / res
         rendition_dir.mkdir(parents=True, exist_ok=True)
-        (rendition_dir / "index.m3u8").write_text("#EXTM3U\n#EXTINF:10,\n000.ts\n", encoding="utf-8")
+        (rendition_dir / "index.m3u8").write_text(
+            "#EXTM3U\n#EXTINF:10,\n000.ts\n", encoding="utf-8"
+        )
         (rendition_dir / "000.ts").write_bytes(b"segment-bytes")
 
     result = run_heal_hls_index(
@@ -73,7 +90,9 @@ def test_run_heal_hls_index_dry_run(settings, tmp_path):
     assert "videos" in result
     assert result["videos"]
     actions = result["videos"][0]["actions"]
-    assert any("create_stream" in action or "update_stream" in action for action in actions)
+    assert any(
+        "create_stream" in action or "update_stream" in action for action in actions
+    )
 
 
 @pytest.mark.django_db
@@ -89,11 +108,15 @@ def test_run_heal_hls_index_write_rebuild(settings, tmp_path, monkeypatch):
         category=VideoCategory.DRAMA,
         is_published=True,
     )
-    VideoStream.objects.create(video=video, resolution="720p", manifest="#EXTM3U\n#EXTINF:10,\n000.ts\n")
+    VideoStream.objects.create(
+        video=video, resolution="720p", manifest="#EXTM3U\n#EXTINF:10,\n000.ts\n"
+    )
 
     rendition_dir = media_root / "hls" / str(video.pk) / "720p"
     rendition_dir.mkdir(parents=True, exist_ok=True)
-    (rendition_dir / "index.m3u8").write_text("#EXTM3U\n#EXTINF:10,\n000.ts\n", encoding="utf-8")
+    (rendition_dir / "index.m3u8").write_text(
+        "#EXTM3U\n#EXTINF:10,\n000.ts\n", encoding="utf-8"
+    )
     (rendition_dir / "000.ts").write_bytes(b"segment-bytes")
 
     def fake_thumbnail(video_id: int, *args, **kwargs):

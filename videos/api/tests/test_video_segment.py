@@ -11,7 +11,9 @@ pytestmark = pytest.mark.django_db
 
 
 def segment_url(movie_id: int, resolution: str) -> str:
-    return reverse("video-segment", kwargs={"movie_id": movie_id, "resolution": resolution})
+    return reverse(
+        "video-segment", kwargs={"movie_id": movie_id, "resolution": resolution}
+    )
 
 
 def segment_content_url(movie_id: int, resolution: str, segment: str) -> str:
@@ -62,7 +64,7 @@ def media_root(tmp_path, settings):
     root = tmp_path / "media"
     root.mkdir(parents=True, exist_ok=True)
     settings.MEDIA_ROOT = str(root)
-    yield root
+    return root
 
 
 def _public_id_for(video: Video) -> int:
@@ -221,8 +223,9 @@ def test_segment_playlist_returns_404_for_missing_video_or_resolution(
     response = authenticated_client.get(segment_url(video.id, "1080p"))
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
-    assert response.json() == {"errors": {"non_field_errors": [
-        "Video manifest not found."]}}
+    assert response.json() == {
+        "errors": {"non_field_errors": ["Video manifest not found."]}
+    }
 
 
 def test_segment_playlist_rejects_invalid_resolution_format(
@@ -234,8 +237,7 @@ def test_segment_playlist_rejects_invalid_resolution_format(
 
     payload = assert_json_error(response, status.HTTP_400_BAD_REQUEST)
     assert "resolution" in payload["errors"]
-    assert payload["errors"]["resolution"][0].startswith(
-        "Invalid resolution format")
+    assert payload["errors"]["resolution"][0].startswith("Invalid resolution format")
 
 
 def test_segment_playlist_idempotent_for_same_request(
@@ -313,7 +315,9 @@ def test_segment_480p_filesystem_manifest_and_segment(
 
     assert_m3u8_success(manifest_response, manifest)
 
-    segment_response = authenticated_client.get(segment_content_url(video.id, "480p", segment_name))
+    segment_response = authenticated_client.get(
+        segment_content_url(video.id, "480p", segment_name)
+    )
 
     assert segment_response.status_code == status.HTTP_200_OK
     assert segment_response["Content-Type"].lower().startswith("video/mp2t")
@@ -351,8 +355,7 @@ def test_segment_playlist_returns_json_for_errors_not_m3u8(
     response = authenticated_client.get(segment_url(video.id, "invalid"))
 
     assert_json_error(response, status.HTTP_400_BAD_REQUEST)
-    assert not response["Content-Type"].startswith(
-        "application/vnd.apple.mpegurl")
+    assert not response["Content-Type"].startswith("application/vnd.apple.mpegurl")
 
 
 @pytest.mark.parametrize("accept_header", ["application/json", "text/plain"])
@@ -370,11 +373,15 @@ def test_segment_playlist_rejects_unacceptable_accept_header(
     )
 
     expected_status = (
-        status.HTTP_404_NOT_FOUND if accept_header == "application/json" else status.HTTP_406_NOT_ACCEPTABLE
+        status.HTTP_404_NOT_FOUND
+        if accept_header == "application/json"
+        else status.HTTP_406_NOT_ACCEPTABLE
     )
     payload = assert_json_error(response, expected_status)
     if expected_status == status.HTTP_406_NOT_ACCEPTABLE:
-        assert payload["errors"]["non_field_errors"][0].startswith("Requested media type not acceptable")
+        assert payload["errors"]["non_field_errors"][0].startswith(
+            "Requested media type not acceptable"
+        )
     else:
         assert payload["errors"]["non_field_errors"] == ["Video manifest not found."]
 
@@ -382,10 +389,14 @@ def test_segment_playlist_rejects_unacceptable_accept_header(
 def test_segment_content_forbids_unpublished_video_for_non_owner(
     authenticated_client: APIClient, unpublished_video: Video, stream_factory
 ) -> None:
-    stream = stream_factory(unpublished_video, "720p", manifest_with_segments("segment.ts"))
+    stream = stream_factory(
+        unpublished_video, "720p", manifest_with_segments("segment.ts")
+    )
     stream.segments.create(name="part1.ts", content=b"segment-bytes")
 
-    response = authenticated_client.get(segment_content_url(unpublished_video.id, "720p", "part1.ts"))
+    response = authenticated_client.get(
+        segment_content_url(unpublished_video.id, "720p", "part1.ts")
+    )
 
     payload = assert_json_error(response, status.HTTP_404_NOT_FOUND)
     assert payload["errors"]["non_field_errors"] == ["Video segment not found."]
@@ -394,10 +405,14 @@ def test_segment_content_forbids_unpublished_video_for_non_owner(
 def test_segment_content_allows_owner_for_unpublished_video(
     owner_client: APIClient, unpublished_video: Video, stream_factory
 ) -> None:
-    stream = stream_factory(unpublished_video, "720p", manifest_with_segments("owner-segment.ts"))
+    stream = stream_factory(
+        unpublished_video, "720p", manifest_with_segments("owner-segment.ts")
+    )
     segment = stream.segments.create(name="part1.ts", content=b"segment-bytes")
 
-    response = owner_client.get(segment_content_url(unpublished_video.id, "720p", "part1.ts"))
+    response = owner_client.get(
+        segment_content_url(unpublished_video.id, "720p", "part1.ts")
+    )
 
     assert response.status_code == status.HTTP_200_OK
     assert response["Content-Type"].lower().startswith("video/mp2t")
@@ -408,10 +423,14 @@ def test_segment_content_allows_owner_for_unpublished_video(
 def test_segment_content_allows_admin_for_unpublished_video(
     admin_client: APIClient, unpublished_video: Video, stream_factory
 ) -> None:
-    stream = stream_factory(unpublished_video, "720p", manifest_with_segments("admin-segment.ts"))
+    stream = stream_factory(
+        unpublished_video, "720p", manifest_with_segments("admin-segment.ts")
+    )
     segment = stream.segments.create(name="part1.ts", content=b"segment-bytes")
 
-    response = admin_client.get(segment_content_url(unpublished_video.id, "720p", "part1.ts"))
+    response = admin_client.get(
+        segment_content_url(unpublished_video.id, "720p", "part1.ts")
+    )
 
     assert response.status_code == status.HTTP_200_OK
     assert response["Content-Type"].lower().startswith("video/mp2t")
@@ -504,8 +523,7 @@ def test_segment_playlist_rejects_disallowed_methods(
     response = method(segment_url(video.id, "720p"))
 
     payload = assert_json_error(response, status.HTTP_405_METHOD_NOT_ALLOWED)
-    assert payload["errors"]["non_field_errors"][0].startswith(
-        "Method not allowed")
+    assert payload["errors"]["non_field_errors"][0].startswith("Method not allowed")
 
 
 def test_public_ids_map_to_real_videos_for_owner(owner_client: APIClient) -> None:
@@ -572,7 +590,9 @@ def test_manifest_served_from_filesystem_for_multiple_resolutions(
     )
 
     for video_obj, prefix in ((newer, b"n"), (older, b"o")):
-        manifest = "#EXTM3U\n#EXTINF:10,\n000.ts\n#EXTINF:10,\n001.ts\n#EXTINF:10,\n002.ts\n"
+        manifest = (
+            "#EXTM3U\n#EXTINF:10,\n000.ts\n#EXTINF:10,\n001.ts\n#EXTINF:10,\n002.ts\n"
+        )
         stream_factory(video_obj, "720p", manifest)
         output_dir = transcode_services.get_transcode_output_dir(video_obj.id, "720p")
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -592,7 +612,9 @@ def test_manifest_served_from_filesystem_for_multiple_resolutions(
             HTTP_ACCEPT="application/vnd.apple.mpegurl",
         )
         assert manifest_response.status_code == status.HTTP_200_OK
-        assert manifest_response["Content-Type"].startswith("application/vnd.apple.mpegurl")
+        assert manifest_response["Content-Type"].startswith(
+            "application/vnd.apple.mpegurl"
+        )
         assert _collect_response_bytes(manifest_response).startswith(b"#EXTM3U")
 
         seg_response = authenticated_client.get(

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from pathlib import Path
 
 import jwt
@@ -21,7 +21,7 @@ def allow_test_hosts(settings):
 
 
 def _make_access_token(user) -> str:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     payload = {
         "user_id": user.pk,
         "username": user.username,
@@ -50,7 +50,9 @@ def test_manifest_streams_entire_file(settings, tmp_path):
         category=VideoCategory.DRAMA,
         is_published=True,
     )
-    stream = VideoStream.objects.create(video=video, resolution="480p", manifest="#EXTM3U\n")
+    stream = VideoStream.objects.create(
+        video=video, resolution="480p", manifest="#EXTM3U\n"
+    )
 
     hls_dir = Path(settings.MEDIA_ROOT) / "hls" / str(video.pk) / "480p"
     hls_dir.mkdir(parents=True, exist_ok=True)
@@ -155,7 +157,9 @@ def test_manifest_missing_returns_404_json(settings, tmp_path):
     )
 
     assert response.status_code == 404
-    assert response.json() == {"errors": {"non_field_errors": ["Video manifest not found."]}}
+    assert response.json() == {
+        "errors": {"non_field_errors": ["Video manifest not found."]}
+    }
 
 
 @pytest.mark.django_db
@@ -190,7 +194,9 @@ def test_manifest_stub_file_returns_404(settings, tmp_path):
     )
 
     assert response.status_code == 404
-    assert response.json() == {"errors": {"non_field_errors": ["Video manifest not found."]}}
+    assert response.json() == {
+        "errors": {"non_field_errors": ["Video manifest not found."]}
+    }
 
 
 @pytest.mark.django_db
@@ -221,7 +227,9 @@ def test_manifest_stub_db_returns_404(settings, tmp_path):
     )
 
     assert response.status_code == 404
-    assert response.json() == {"errors": {"non_field_errors": ["Video manifest not found."]}}
+    assert response.json() == {
+        "errors": {"non_field_errors": ["Video manifest not found."]}
+    }
 
 
 @pytest.mark.django_db
@@ -348,7 +356,9 @@ def test_segment_served_for_1080p_resolution(settings, tmp_path):
         category=VideoCategory.DRAMA,
         is_published=True,
     )
-    stream = VideoStream.objects.create(video=video, resolution="1080p", manifest="#EXTM3U\n")
+    stream = VideoStream.objects.create(
+        video=video, resolution="1080p", manifest="#EXTM3U\n"
+    )
 
     hls_dir = Path(settings.MEDIA_ROOT) / "hls" / str(video.pk) / "1080p"
     hls_dir.mkdir(parents=True, exist_ok=True)
@@ -387,7 +397,9 @@ def test_segment_served_even_when_resolution_not_allowed(settings, tmp_path):
         category=VideoCategory.DRAMA,
         is_published=True,
     )
-    stream = VideoStream.objects.create(video=video, resolution="720p", manifest="#EXTM3U\n")
+    stream = VideoStream.objects.create(
+        video=video, resolution="720p", manifest="#EXTM3U\n"
+    )
 
     hls_dir = Path(settings.MEDIA_ROOT) / "hls" / str(video.pk) / "720p"
     hls_dir.mkdir(parents=True, exist_ok=True)
@@ -428,7 +440,9 @@ def test_segment_disallowed_resolution_sets_debug_header(settings, tmp_path):
         category=VideoCategory.DRAMA,
         is_published=True,
     )
-    stream = VideoStream.objects.create(video=video, resolution="1080p", manifest="#EXTM3U\n")
+    stream = VideoStream.objects.create(
+        video=video, resolution="1080p", manifest="#EXTM3U\n"
+    )
     VideoSegment.objects.create(stream=stream, name="000.ts", content=b"blocked")
 
     client = APIClient()

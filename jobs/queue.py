@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from __future__ import annotations
 
-from typing import Any, Iterable, Sequence
+from typing import Any
+from collections.abc import Iterable, Sequence
 
 from django.conf import settings
 from rq import Retry
@@ -60,4 +61,8 @@ def enqueue_transcode_job(
     job.meta["video_id"] = video_id
     job.meta["resolutions"] = list(payload)
     job.save_meta()
-    return {"accepted": True, "job_id": getattr(job, "id", None), "queue": queue_obj.name}
+    return {
+        "accepted": True,
+        "job_id": getattr(job, "id", None),
+        "queue": queue_obj.name,
+    }

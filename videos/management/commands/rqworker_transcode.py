@@ -1,14 +1,19 @@
+"""Spawn an RQ worker dedicated to the transcode queue."""
+
 from __future__ import annotations
 
 import importlib
 import sys
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 
 class Command(BaseCommand):
+    """Start an RQ worker using django-rq for the configured transcode queue."""
+
     help = "Start a Windows-safe RQ worker for the transcode queue."
 
     def add_arguments(self, parser):
@@ -19,6 +24,7 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        """Resolve the worker implementation and begin processing queue jobs."""
         queue_name = getattr(settings, "RQ_QUEUE_TRANSCODE", "transcode").strip()
         if not queue_name:
             raise CommandError("RQ_QUEUE_TRANSCODE is not configured.")
@@ -31,7 +37,9 @@ class Command(BaseCommand):
         worker_kwargs = self._worker_kwargs()
         worker_description = worker_kwargs.pop("worker_description", "")
 
-        base_message = f"Starting RQ worker for queue '{queue_name}' (burst={burst_label})."
+        base_message = (
+            f"Starting RQ worker for queue '{queue_name}' (burst={burst_label})."
+        )
         self.stdout.write(self.style.SUCCESS(base_message))
         if worker_description:
             self.stdout.write(self.style.SUCCESS(f"Worker class: {worker_description}"))
@@ -51,9 +59,7 @@ class Command(BaseCommand):
         return get_worker
 
     def _worker_kwargs(self) -> dict[str, Any]:
-        """
-        Prefer SimpleWorker on Windows where fork-based workers are unsupported.
-        """
+        """Prefer SimpleWorker on Windows where fork-based workers are unsupported."""
         if not sys.platform.lower().startswith("win"):
             return {}
 

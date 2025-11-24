@@ -1,0 +1,54 @@
+# /etc/nginx/sites-available/videoflix.conf
+
+server {
+    listen 80;
+    server_name videoflix.api.sascha-gerspach.tld;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name videoflix.api.sascha-gerspach.tld;
+
+    # TLS certificates (replace with your Let's Encrypt paths)
+    ssl_certificate     /etc/letsencrypt/live/videoflix.api.sascha-gerspach.tld/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/videoflix.api.sascha-gerspach.tld/privkey.pem;
+    ssl_session_cache shared:SSL:50m;
+    ssl_session_timeout 1d;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers on;
+
+    # Proxy Django (Gunicorn/Uvicorn) running on localhost:8000
+    location / {
+        proxy_pass         http://127.0.0.1:8000;
+        proxy_set_header   Host $host;
+        proxy_set_header   X-Forwarded-Proto https;
+        proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_buffering    off;
+        proxy_read_timeout 180s;
+    }
+
+    # Static media: HLS playlists/segments + thumbnails
+    location /media/ {
+        alias /srv/videoflix/media/;
+        expires 7d;
+        add_header Cache-Control "public, max-age=604800";
+        add_header Access-Control-Allow-Origin "https://videoflix.webapp.local";
+        add_header Access-Control-Allow-Credentials "true";
+
+        # Allow preflight for HLS segments
+        if ($request_method = 'OPTIONS') {
+            add_header Access-Control-Allow-Methods 'GET, OPTIONS';
+            add_header Access-Control-Allow-Headers 'Authorization,Range,DNT,User-Agent';
+            return 204;
+        }
+    }
+
+    # Basic security headers
+    add_header X-Content-Type-Options nosniff;
+    add_header X-Frame-Options DENY;
+    add_header Referrer-Policy strict-origin-when-cross-origin;
+
+    access_log /var/log/nginx/videoflix.access.log;
+    error_log  /var/log/nginx/videoflix.error.log warn;
+}

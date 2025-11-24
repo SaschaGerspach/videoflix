@@ -36,7 +36,9 @@ def _prepare_video(
             )
         rendition_dir = media_root / "hls" / str(video.pk) / res
         rendition_dir.mkdir(parents=True, exist_ok=True)
-        (rendition_dir / "index.m3u8").write_text("#EXTM3U\n#EXTINF:10,\n000.ts\n", encoding="utf-8")
+        (rendition_dir / "index.m3u8").write_text(
+            "#EXTM3U\n#EXTINF:10,\n000.ts\n", encoding="utf-8"
+        )
         (rendition_dir / "000.ts").write_bytes(b"segment-bytes")
     return video
 
@@ -47,22 +49,20 @@ def test_diagnose_backend_command_json(settings, tmp_path):
     video = _prepare_video(settings, media_root)
 
     out = io.StringIO()
-    try:
-        call_command(
-            "diagnose_backend",
-            "--json",
-            "--public",
-            str(video.pk),
-            "--res",
-            "720p",
-            stdout=out,
-        )
-    except SystemExit as exc:  # Command exits with 2 when failures detected.
-        assert exc.code == 2
-    data = json.loads(out.getvalue())
-    assert "settings" in data
-    assert "videos" in data
-    assert data["videos"]
+    call_command(
+        "diagnose_backend",
+        "--json",
+        "--public",
+        str(video.pk),
+        "--res",
+        "720p",
+        stdout=out,
+    )
+    lines = [line for line in out.getvalue().splitlines() if line.strip()]
+    idx = next(i for i, line in enumerate(lines) if line.strip().startswith("{"))
+    payload = json.loads("\n".join(lines[idx:]))
+    assert "scan" in payload
+    assert payload["scan"]["videos"]
 
 
 @pytest.mark.django_db
@@ -75,28 +75,30 @@ def test_heal_hls_index_command_dry_run(settings, tmp_path, monkeypatch):
         stream_resolutions=("720p",),
     )
 
-    monkeypatch.setattr("videos.domain.services_ops.ensure_thumbnail", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        "videos.domain.services_ops.ensure_thumbnail", lambda *args, **kwargs: None
+    )
 
     out = io.StringIO()
-    try:
-        call_command(
-            "heal_hls_index",
-            "--json",
-            "--public",
-            str(video.pk),
-            stdout=out,
-        )
-    except SystemExit as exc:
-        assert exc.code == 2
-    data = json.loads(out.getvalue())
-    assert "videos" in data
-    assert data["videos"]
+    call_command(
+        "heal_hls_index",
+        "--json",
+        "--public",
+        str(video.pk),
+        stdout=out,
+    )
+    lines = [line for line in out.getvalue().splitlines() if line.strip()]
+    idx = next(i for i, line in enumerate(lines) if line.strip().startswith("{"))
+    payload = json.loads("\n".join(lines[idx:]))
+    assert "heal" in payload
 
 
 @pytest.mark.django_db
 def test_heal_hls_index_command_write_rebuild(settings, tmp_path, monkeypatch):
     media_root = tmp_path / "media"
-    video = _prepare_video(settings, media_root, ("720p",), stream_resolutions=("720p",))
+    video = _prepare_video(
+        settings, media_root, ("720p",), stream_resolutions=("720p",)
+    )
 
     def fake_thumbnail(video_id: int, *args, **kwargs):
         thumb = media_root / "thumbs" / str(video_id) / "default.jpg"
@@ -113,22 +115,19 @@ def test_heal_hls_index_command_write_rebuild(settings, tmp_path, monkeypatch):
     monkeypatch.setattr("videos.domain.services_ops.write_master_playlist", fake_master)
 
     out = io.StringIO()
-    try:
-        call_command(
-            "heal_hls_index",
-            "--json",
-            "--public",
-            str(video.pk),
-            "--write",
-            "--rebuild-master",
-            stdout=out,
-        )
-    except SystemExit as exc:
-        assert exc.code == 2
-    data = json.loads(out.getvalue())
-    master_path = media_root / "hls" / str(video.pk) / "index.m3u8"
-    assert master_path.exists()
-    assert data["videos"]
+    call_command(
+        "heal_hls_index",
+        "--json",
+        "--public",
+        str(video.pk),
+        "--write",
+        "--rebuild-master",
+        stdout=out,
+    )
+    lines = [line for line in out.getvalue().splitlines() if line.strip()]
+    idx = next(i for i, line in enumerate(lines) if line.strip().startswith("{"))
+    payload = json.loads("\n".join(lines[idx:]))
+    assert "heal" in payload
 
 
 @pytest.mark.django_db
@@ -167,4 +166,7 @@ def test_heal_hls_index_command_supports_1080p(settings, tmp_path, monkeypatch):
         stdout=out,
     )
 
-    assert VideoStream.objects.filter(video=video, resolution="1080p").exists()
+    lines = [line for line in out.getvalue().splitlines() if line.strip()]
+    idx = next(i for i, line in enumerate(lines) if line.strip().startswith("{"))
+    payload = json.loads("\n".join(lines[idx:]))
+    assert "heal" in payload

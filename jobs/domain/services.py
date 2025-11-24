@@ -1,3 +1,5 @@
+"""Domain services for orchestrating transcode jobs and status bookkeeping."""
+
 from __future__ import annotations
 
 import json
@@ -5,7 +7,8 @@ import logging
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any
+from collections.abc import Callable, Iterable
 
 from django.conf import settings
 from django.core.cache import cache
@@ -76,8 +79,7 @@ def _call_run_transcode_callable(
     *,
     force: bool = False,
 ) -> Any:
-    """
-    Invoke the provided run_transcode callable while tolerating the absence of a
+    """Invoke the provided run_transcode callable while tolerating the absence of a
     force kwarg (older deployments/tests).
     """
     try:
@@ -95,11 +97,12 @@ def invoke_run_transcode_job(
     *,
     force: bool = False,
 ) -> Any:
-    """
-    Public compat shim so other modules can run inline transcodes without caring
+    """Public compat shim so other modules can run inline transcodes without caring
     whether the underlying implementation supports the force kwarg.
     """
-    return _call_run_transcode_callable(run_transcode_job, video_id, resolutions, force=force)
+    return _call_run_transcode_callable(
+        run_transcode_job, video_id, resolutions, force=force
+    )
 
 
 class TranscodeError(ValidationError):
@@ -139,8 +142,7 @@ def manifest_path_for(video_id: int, resolution: str) -> Path:
 
 
 def get_video_source_path(video_id: int) -> Path:
-    """
-    Return the best-effort filesystem path for a video's source file.
+    """Return the best-effort filesystem path for a video's source file.
 
     Prefers the actual file linked via model fields and falls back to the
     canonical MEDIA_ROOT/sources/<id>.mp4 location so callers can create the file.
@@ -202,9 +204,7 @@ def _source_has_audio_stream(source: Path) -> bool | None:
 
 
 def _probe_source_dimensions(source: Path) -> tuple[int | None, int | None]:
-    """
-    Return (width, height) for the first video stream when ffprobe is available.
-    """
+    """Return (width, height) for the first video stream when ffprobe is available."""
     probe_cmd = [
         "ffprobe",
         "-v",
@@ -250,9 +250,7 @@ def _probe_source_dimensions(source: Path) -> tuple[int | None, int | None]:
 
 
 def probe_source_height(source: Path) -> int | None:
-    """
-    Convenience wrapper that returns only the video height when known.
-    """
+    """Convenience wrapper that returns only the video height when known."""
     _, height = _probe_source_dimensions(source)
     return height
 
@@ -267,8 +265,7 @@ def mark_transcode_processing(video_id: int) -> None:
 
 
 def mark_transcode_ready(video_id: int) -> None:
-    cache.set(transcode_ready_key(video_id), True,
-              timeout=TRANSCODE_LOCK_TTL_SECONDS)
+    cache.set(transcode_ready_key(video_id), True, timeout=TRANSCODE_LOCK_TTL_SECONDS)
     cache.set(
         transcode_status_key(video_id),
         {"state": "ready", "message": None},
@@ -305,8 +302,7 @@ def enqueue_transcode(
     target_resolutions: Iterable[str] | None = None,
     force: bool = False,
 ) -> dict | None:
-    """
-    Start an ffmpeg-based HLS transcode for the given video.
+    """Start an ffmpeg-based HLS transcode for the given video.
 
     Raises TranscodeError when a conflicting job is running, ffmpeg is missing,
     or when the operation fails unexpectedly.
@@ -358,11 +354,17 @@ def enqueue_transcode(
 
     if queue and cache.get(pending_key) and not is_transcode_locked(video_id):
         try:
-            if not getattr(settings, "IS_TEST_ENV", False) and not _has_active_transcode_job(video_id):
+            if not getattr(
+                settings, "IS_TEST_ENV", False
+            ) and not _has_active_transcode_job(video_id):
                 cache.delete(pending_key)
-                logger.info("Cleared stale transcode pending flag: video_id=%s", video_id)
+                logger.info(
+                    "Cleared stale transcode pending flag: video_id=%s", video_id
+                )
         except Exception as exc:  # pragma: no cover - defensive logging
-            logger.debug("Pending sanity check failed: video_id=%s, error=%s", video_id, exc)
+            logger.debug(
+                "Pending sanity check failed: video_id=%s, error=%s", video_id, exc
+            )
 
     if cache.get(pending_key) or is_transcode_locked(video_id):
         raise TranscodeError("Transcode already in progress.", status_code=409)
@@ -377,7 +379,9 @@ def enqueue_transcode(
             )
         except (TranscodeError, ValidationError):
             raise
-        except Exception as exc:  # pragma: no cover - defensive logging handled upstream
+        except (
+            Exception
+        ) as exc:  # pragma: no cover - defensive logging handled upstream
             logger.info(
                 "RQ unavailable, running inline transcode: video_id=%s, queue=%s, error=%s",
                 video_id,
@@ -395,7 +399,9 @@ def enqueue_transcode(
             )
             return enqueue_result
     else:
-        logger.info("RQ queue not available; running inline transcode: video_id=%s", video_id)
+        logger.info(
+            "RQ queue not available; running inline transcode: video_id=%s", video_id
+        )
 
     return invoke_run_transcode_job(video_id, resolutions, force=force)
 
@@ -423,16 +429,26 @@ def _run_ffmpeg_for_profile(video_id: int, source: Path, resolution: str) -> Non
     cmd = [
         "ffmpeg",
         "-y",
-        "-i", str(source),
-        "-vf", scale_filter,
-        "-c:v", "h264",
-        "-profile:v", "main",
-        "-level", "3.1",
-        "-pix_fmt", "yuv420p",
-        "-preset", "veryfast",
-        "-g", "48",
-        "-sc_threshold", "0",
-        "-map", "0:v:0",
+        "-i",
+        str(source),
+        "-vf",
+        scale_filter,
+        "-c:v",
+        "h264",
+        "-profile:v",
+        "main",
+        "-level",
+        "3.1",
+        "-pix_fmt",
+        "yuv420p",
+        "-preset",
+        "veryfast",
+        "-g",
+        "48",
+        "-sc_threshold",
+        "0",
+        "-map",
+        "0:v:0",
     ]
     if profile.video_bitrate:
         cmd.extend(["-b:v", profile.video_bitrate])
@@ -486,8 +502,7 @@ def manifest_exists_for_resolution(video_id: int, resolution: str) -> bool:
 
 
 def _has_active_transcode_job(video_id: int) -> bool:
-    """
-    Return True when an RQ job for the given video_id is still queued/started/deferred.
+    """Return True when an RQ job for the given video_id is still queued/started/deferred.
     Falls back to True (keep lock) when inspection fails so we do not clear pending eagerly.
     """
     queue = transcode_queue.get_transcode_queue()
@@ -506,7 +521,9 @@ def _has_active_transcode_job(video_id: int) -> bool:
     try:
         job_ids.update(queue.job_ids)
     except Exception as exc:  # pragma: no cover - defensive logging only
-        logger.debug("Unable to collect queued job IDs: video_id=%s, error=%s", video_id, exc)
+        logger.debug(
+            "Unable to collect queued job IDs: video_id=%s, error=%s", video_id, exc
+        )
 
     registry_sources = [
         getattr(queue, "started_job_registry", None),
@@ -577,7 +594,10 @@ def _prepare_resolutions(target_resolutions: Iterable[str] | None) -> list[str]:
     return resolutions
 
 
-def run_transcode_job(video_id: int, resolutions: Iterable[str], *, force: bool = False) -> dict | None:
+def run_transcode_job(
+    video_id: int, resolutions: Iterable[str], *, force: bool = False
+) -> dict | None:
+    """Run ffmpeg for the requested resolutions and update bookkeeping around locks/status."""
     lock_key = transcode_lock_key(video_id)
     pending_key = transcode_pending_key(video_id)
     if not cache.add(lock_key, True, timeout=TRANSCODE_LOCK_TTL_SECONDS):
@@ -657,9 +677,7 @@ def run_transcode_job(video_id: int, resolutions: Iterable[str], *, force: bool 
         )
     except FileNotFoundError:
         mark_transcode_failed(video_id, "ffmpeg not found")
-        logger.error(
-            "Transcode failed (ffmpeg not found): video_id=%s", video_id
-        )
+        logger.error("Transcode failed (ffmpeg not found): video_id=%s", video_id)
         raise TranscodeError("ffmpeg not found", status_code=500)
     except subprocess.CalledProcessError as exc:
         mark_transcode_failed(video_id, "Transcode failed.")
@@ -676,9 +694,7 @@ def run_transcode_job(video_id: int, resolutions: Iterable[str], *, force: bool 
 
 
 def enqueue_thumbnail(video_id: int) -> dict[str, Any]:
-    """
-    Hook for future async thumbnail generation. Currently executes in-process.
-    """
+    """Hook for future async thumbnail generation. Currently executes in-process."""
     return run_thumbnail_job(video_id)
 
 

@@ -54,7 +54,7 @@ def write_manifest(base_dir: Path, *, segments: int = 2, stub: bool = False) -> 
             lines.append("#EXTINF:10,")
             name = f"{idx:03d}.ts"
             lines.append(name)
-            (base_dir / name).write_bytes(f"segment-{idx}".encode("utf-8"))
+            (base_dir / name).write_bytes(f"segment-{idx}".encode())
         manifest.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return manifest
 
@@ -89,7 +89,16 @@ def test_enqueue_transcodes_happy_path_real_ids(media_root, monkeypatch):
     monkeypatch.setattr(enqueue_mod.job_services, "enqueue_transcode", fake_enqueue)
 
     out, err = io.StringIO(), io.StringIO()
-    call_command("enqueue_transcodes", "--real", "9", "10", "--res", "480p", stdout=out, stderr=err)
+    call_command(
+        "enqueue_transcodes",
+        "--real",
+        "9",
+        "10",
+        "--res",
+        "480p",
+        stdout=out,
+        stderr=err,
+    )
 
     assert calls == [(9, ["480p"]), (10, ["480p"])]
     assert_in_any(
@@ -102,7 +111,16 @@ def test_enqueue_transcodes_happy_path_real_ids(media_root, monkeypatch):
 def test_enqueue_transcodes_missing_real_ids_raises(media_root):
     out, err = io.StringIO(), io.StringIO()
     with pytest.raises(CommandError) as excinfo:
-        call_command("enqueue_transcodes", "--real", "7", "8", "--res", "720p", stdout=out, stderr=err)
+        call_command(
+            "enqueue_transcodes",
+            "--real",
+            "7",
+            "8",
+            "--res",
+            "720p",
+            stdout=out,
+            stderr=err,
+        )
 
     assert_in_any(
         [
@@ -141,7 +159,13 @@ def test_enqueue_transcodes_skips_existing(media_root, monkeypatch):
     write_source(media_root, video.id)
 
     enqueue_mod = module("videos.management.commands.enqueue_transcodes")
-    monkeypatch.setattr(enqueue_mod.job_services, "enqueue_transcode", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not enqueue")))
+    monkeypatch.setattr(
+        enqueue_mod.job_services,
+        "enqueue_transcode",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("should not enqueue")
+        ),
+    )
 
     out = io.StringIO()
     call_command("enqueue_transcodes", "--real", "55", "--res", "720p", stdout=out)
@@ -156,7 +180,15 @@ def test_enqueue_transcodes_missing_source_reports_failure(media_root):
     video = create_video(77, "NoSource")
     out, err = io.StringIO(), io.StringIO()
     with pytest.raises(CommandError) as excinfo:
-        call_command("enqueue_transcodes", "--real", "77", "--res", "480p", stdout=out, stderr=err)
+        call_command(
+            "enqueue_transcodes",
+            "--real",
+            "77",
+            "--res",
+            "480p",
+            stdout=out,
+            stderr=err,
+        )
 
     combined = out.getvalue() + err.getvalue()
     assert_in_any(
@@ -183,7 +215,9 @@ def test_auto_enqueue_missing_public_confirm(media_root, monkeypatch):
         raise Video.DoesNotExist
 
     monkeypatch.setattr(auto_mod, "resolve_public_id", resolve_public)
-    monkeypatch.setattr(auto_mod.job_services, "is_transcode_locked", lambda _vid: False)
+    monkeypatch.setattr(
+        auto_mod.job_services, "is_transcode_locked", lambda _vid: False
+    )
 
     calls: list[tuple[int, list[str]]] = []
 
@@ -193,7 +227,15 @@ def test_auto_enqueue_missing_public_confirm(media_root, monkeypatch):
     monkeypatch.setattr(auto_mod.job_services, "enqueue_transcode", fake_enqueue)
 
     out = io.StringIO()
-    call_command("auto_enqueue_missing", "--public", "1", "--res", "480p", "--confirm", stdout=out)
+    call_command(
+        "auto_enqueue_missing",
+        "--public",
+        "1",
+        "--res",
+        "480p",
+        "--confirm",
+        stdout=out,
+    )
 
     assert calls == [(5, ["480p"])]
     stdout = out.getvalue()
@@ -220,11 +262,27 @@ def test_auto_enqueue_missing_dry_run(media_root, monkeypatch):
         raise Video.DoesNotExist
 
     monkeypatch.setattr(auto_mod, "resolve_public_id", resolve_public)
-    monkeypatch.setattr(auto_mod.job_services, "is_transcode_locked", lambda _vid: False)
-    monkeypatch.setattr(auto_mod.job_services, "enqueue_transcode", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not enqueue")))
+    monkeypatch.setattr(
+        auto_mod.job_services, "is_transcode_locked", lambda _vid: False
+    )
+    monkeypatch.setattr(
+        auto_mod.job_services,
+        "enqueue_transcode",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("should not enqueue")
+        ),
+    )
 
     out = io.StringIO()
-    call_command("auto_enqueue_missing", "--public", "2", "--res", "480p", "--dry-run", stdout=out)
+    call_command(
+        "auto_enqueue_missing",
+        "--public",
+        "2",
+        "--res",
+        "480p",
+        "--dry-run",
+        stdout=out,
+    )
     assert_in_any(
         [
             "Dry-run enabled; no jobs enqueued.",
@@ -292,10 +350,24 @@ def test_auto_enqueue_missing_already_present(media_root, monkeypatch):
         raise Video.DoesNotExist
 
     monkeypatch.setattr(auto_mod, "resolve_public_id", resolve_public)
-    monkeypatch.setattr(auto_mod.job_services, "enqueue_transcode", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not enqueue")))
+    monkeypatch.setattr(
+        auto_mod.job_services,
+        "enqueue_transcode",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("should not enqueue")
+        ),
+    )
 
     out = io.StringIO()
-    call_command("auto_enqueue_missing", "--public", "2", "--res", "480p", "--confirm", stdout=out)
+    call_command(
+        "auto_enqueue_missing",
+        "--public",
+        "2",
+        "--res",
+        "480p",
+        "--confirm",
+        stdout=out,
+    )
     assert_in_any(
         [
             "already contain",
@@ -313,7 +385,9 @@ def test_auto_enqueue_missing_force_rebuild(media_root, monkeypatch):
     write_manifest(media_root / "hls" / str(existing.id) / "480p", segments=1)
 
     auto_mod = module("videos.management.commands.auto_enqueue_missing")
-    monkeypatch.setattr(auto_mod.job_services, "is_transcode_locked", lambda _vid: False)
+    monkeypatch.setattr(
+        auto_mod.job_services, "is_transcode_locked", lambda _vid: False
+    )
 
     calls: list[tuple[int, list[str]]] = []
 
@@ -353,12 +427,27 @@ def test_auto_enqueue_missing_enqueue_failure_reports(media_root, monkeypatch):
     write_source(media_root, video.id)
 
     auto_mod = module("videos.management.commands.auto_enqueue_missing")
-    monkeypatch.setattr(auto_mod.job_services, "is_transcode_locked", lambda _vid: False)
-    monkeypatch.setattr(auto_mod.job_services, "enqueue_transcode", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("boom")))
+    monkeypatch.setattr(
+        auto_mod.job_services, "is_transcode_locked", lambda _vid: False
+    )
+    monkeypatch.setattr(
+        auto_mod.job_services,
+        "enqueue_transcode",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
 
     out, err = io.StringIO(), io.StringIO()
     with pytest.raises(CommandError) as excinfo:
-        call_command("auto_enqueue_missing", "--real", str(video.id), "--res", "480p", "--confirm", stdout=out, stderr=err)
+        call_command(
+            "auto_enqueue_missing",
+            "--real",
+            str(video.id),
+            "--res",
+            "480p",
+            "--confirm",
+            stdout=out,
+            stderr=err,
+        )
 
     combined = out.getvalue() + err.getvalue()
     assert_in_any(
@@ -397,7 +486,9 @@ def test_check_renditions_classification(media_root, monkeypatch):
     monkeypatch.setattr(check_mod, "resolve_public_id", resolve_public)
 
     out = io.StringIO()
-    call_command("check_renditions", "--public", "1", "2", "3", "--res", "480p", stdout=out)
+    call_command(
+        "check_renditions", "--public", "1", "2", "3", "--res", "480p", stdout=out
+    )
     stdout = out.getvalue()
     norm_out = _norm(stdout)
     assert "ok" in norm_out and "empty" in norm_out and "missing" in norm_out
@@ -411,7 +502,9 @@ def test_check_renditions_real_ids_only(media_root):
     write_manifest(media_root / "hls" / str(video.id) / "480p", segments=1)
 
     out = io.StringIO()
-    call_command("check_renditions", "--real", str(video.id), "--res", "480p", stdout=out)
+    call_command(
+        "check_renditions", "--real", str(video.id), "--res", "480p", stdout=out
+    )
     stdout = out.getvalue()
     assert_in_any(
         [f"real: {video.id}", f"real {video.id}"],
@@ -425,7 +518,16 @@ def test_check_renditions_multiple_resolutions(media_root):
     write_manifest(media_root / "hls" / str(video.id) / "480p", segments=1)
 
     out = io.StringIO()
-    call_command("check_renditions", "--real", str(video.id), "--res", "480p", "--res", "720p", stdout=out)
+    call_command(
+        "check_renditions",
+        "--real",
+        str(video.id),
+        "--res",
+        "480p",
+        "--res",
+        "720p",
+        stdout=out,
+    )
     stdout = out.getvalue()
     assert_in_any(
         ["480p: OK", "480p ok"],
@@ -442,7 +544,9 @@ def test_check_renditions_reports_1080p(media_root):
     write_manifest(media_root / "hls" / str(video.id) / "1080p", segments=1)
 
     out = io.StringIO()
-    call_command("check_renditions", "--real", str(video.id), "--res", "1080p", stdout=out)
+    call_command(
+        "check_renditions", "--real", str(video.id), "--res", "1080p", stdout=out
+    )
     stdout = out.getvalue()
     assert_in_any(["1080p: OK", "1080p ok"], stdout)
 
@@ -453,7 +557,9 @@ def test_check_renditions_multi_value_single_flag(media_root):
     write_manifest(media_root / "hls" / str(video.id) / "720p", segments=1)
 
     out = io.StringIO()
-    call_command("check_renditions", "--real", str(video.id), "--res", "480p", "720p", stdout=out)
+    call_command(
+        "check_renditions", "--real", str(video.id), "--res", "480p", "720p", stdout=out
+    )
     stdout = out.getvalue()
     assert_in_any(["480p: OK", "480p ok"], stdout)
     assert_in_any(["720p: OK", "720p ok", "720p"], stdout)
@@ -464,7 +570,9 @@ def test_check_renditions_stub_counts_empty(media_root):
     write_manifest(media_root / "hls" / str(video.id) / "480p", stub=True)
 
     out = io.StringIO()
-    call_command("check_renditions", "--real", str(video.id), "--res", "480p", stdout=out)
+    call_command(
+        "check_renditions", "--real", str(video.id), "--res", "480p", stdout=out
+    )
     stdout = out.getvalue()
     assert_in_any(["EMPTY", "empty"], stdout)
 
@@ -710,7 +818,9 @@ def test_auto_enqueue_missing_missing_mapped_video_raises(monkeypatch):
     )
 
 
-def test_auto_enqueue_missing_reports_invalid_and_missing_inputs(media_root, monkeypatch):
+def test_auto_enqueue_missing_reports_invalid_and_missing_inputs(
+    media_root, monkeypatch
+):
     valid = create_video(140, "Valid")
     auto_mod = module("videos.management.commands.auto_enqueue_missing")
 
@@ -733,7 +843,9 @@ def test_auto_enqueue_missing_reports_invalid_and_missing_inputs(media_root, mon
 
     monkeypatch.setattr(auto_mod, "resolve_public_id", resolve_public)
     monkeypatch.setattr(auto_mod, "_unique", filtered_unique)
-    monkeypatch.setattr(auto_mod.job_services, "is_transcode_locked", lambda _vid: False)
+    monkeypatch.setattr(
+        auto_mod.job_services, "is_transcode_locked", lambda _vid: False
+    )
 
     out, err = io.StringIO(), io.StringIO()
     with pytest.raises(CommandError) as excinfo:
@@ -775,7 +887,6 @@ def test_auto_enqueue_missing_reports_invalid_and_missing_inputs(media_root, mon
     )
 
 
-
 def test_auto_enqueue_missing_dry_run_invalid_ids_raise(media_root, monkeypatch):
     valid = create_video(141, "DryInvalid")
     auto_mod = module("videos.management.commands.auto_enqueue_missing")
@@ -784,7 +895,9 @@ def test_auto_enqueue_missing_dry_run_invalid_ids_raise(media_root, monkeypatch)
         raise Video.DoesNotExist
 
     monkeypatch.setattr(auto_mod, "resolve_public_id", resolve_public)
-    monkeypatch.setattr(auto_mod.job_services, "is_transcode_locked", lambda _vid: False)
+    monkeypatch.setattr(
+        auto_mod.job_services, "is_transcode_locked", lambda _vid: False
+    )
 
     out, err = io.StringIO(), io.StringIO()
     with pytest.raises(CommandError) as excinfo:
@@ -818,7 +931,9 @@ def test_auto_enqueue_missing_dry_run_invalid_ids_raise(media_root, monkeypatch)
     )
 
 
-def test_auto_enqueue_missing_all_present_with_invalid_ids_raise(media_root, monkeypatch):
+def test_auto_enqueue_missing_all_present_with_invalid_ids_raise(
+    media_root, monkeypatch
+):
     video = create_video(142, "PresentInvalid")
     write_manifest(media_root / "hls" / str(video.id) / "480p", segments=1)
 
@@ -830,7 +945,9 @@ def test_auto_enqueue_missing_all_present_with_invalid_ids_raise(media_root, mon
         raise Video.DoesNotExist
 
     monkeypatch.setattr(auto_mod, "resolve_public_id", resolve_public)
-    monkeypatch.setattr(auto_mod.job_services, "is_transcode_locked", lambda _vid: False)
+    monkeypatch.setattr(
+        auto_mod.job_services, "is_transcode_locked", lambda _vid: False
+    )
 
     out, err = io.StringIO(), io.StringIO()
     with pytest.raises(CommandError) as excinfo:
@@ -841,11 +958,11 @@ def test_auto_enqueue_missing_all_present_with_invalid_ids_raise(media_root, mon
             "10",
             "--real",
             str(video.id),
-        "--res",
-        "480p",
-        stdout=out,
-        stderr=err,
-    )
+            "--res",
+            "480p",
+            stdout=out,
+            stderr=err,
+        )
 
     assert_in_any(
         [
@@ -868,8 +985,16 @@ def test_auto_enqueue_missing_prompt_abort_without_invalids(media_root, monkeypa
     write_source(media_root, video.id)
 
     auto_mod = module("videos.management.commands.auto_enqueue_missing")
-    monkeypatch.setattr(auto_mod.job_services, "is_transcode_locked", lambda _vid: False)
-    monkeypatch.setattr(auto_mod.job_services, "enqueue_transcode", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not enqueue")))
+    monkeypatch.setattr(
+        auto_mod.job_services, "is_transcode_locked", lambda _vid: False
+    )
+    monkeypatch.setattr(
+        auto_mod.job_services,
+        "enqueue_transcode",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("should not enqueue")
+        ),
+    )
     monkeypatch.setattr("builtins.input", lambda prompt: "n")
 
     out = io.StringIO()
@@ -898,8 +1023,16 @@ def test_auto_enqueue_missing_prompt_abort_with_invalids(media_root, monkeypatch
         raise Video.DoesNotExist
 
     monkeypatch.setattr(auto_mod, "resolve_public_id", resolve_public)
-    monkeypatch.setattr(auto_mod.job_services, "is_transcode_locked", lambda _vid: False)
-    monkeypatch.setattr(auto_mod.job_services, "enqueue_transcode", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not enqueue")))
+    monkeypatch.setattr(
+        auto_mod.job_services, "is_transcode_locked", lambda _vid: False
+    )
+    monkeypatch.setattr(
+        auto_mod.job_services,
+        "enqueue_transcode",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("should not enqueue")
+        ),
+    )
     monkeypatch.setattr("builtins.input", lambda prompt: "n")
 
     out, err = io.StringIO(), io.StringIO()
@@ -933,7 +1066,9 @@ def test_auto_enqueue_missing_missing_source_collects_failure(media_root, monkey
     video = create_video(145, "NoSourceAuto")
 
     auto_mod = module("videos.management.commands.auto_enqueue_missing")
-    monkeypatch.setattr(auto_mod.job_services, "is_transcode_locked", lambda _vid: False)
+    monkeypatch.setattr(
+        auto_mod.job_services, "is_transcode_locked", lambda _vid: False
+    )
 
     out, err = io.StringIO(), io.StringIO()
     with pytest.raises(CommandError) as excinfo:
@@ -966,7 +1101,9 @@ def test_auto_enqueue_missing_invalid_ids_error_after_success(media_root, monkey
     write_source(media_root, video.id)
 
     auto_mod = module("videos.management.commands.auto_enqueue_missing")
-    monkeypatch.setattr(auto_mod.job_services, "is_transcode_locked", lambda _vid: False)
+    monkeypatch.setattr(
+        auto_mod.job_services, "is_transcode_locked", lambda _vid: False
+    )
 
     calls: list[int] = []
 
@@ -1047,11 +1184,15 @@ def test_auto_enqueue_missing_resolution_status_oserror(media_root, monkeypatch)
     command = auto_mod.Command()
 
     target_dir = media_root / "hls" / "1002" / "480p"
-    target_dir.mkdir(parents=True)
+    target_dir.mkdir(parents=True, exist_ok=True)
     manifest = target_dir / "index.m3u8"
     manifest.write_text("#EXTM3U\n", encoding="utf-8")
 
-    monkeypatch.setattr(auto_mod, "is_stub_manifest", lambda path: (_ for _ in ()).throw(OSError("stat")))
+    monkeypatch.setattr(
+        auto_mod,
+        "is_stub_manifest",
+        lambda path: (_ for _ in ()).throw(OSError("stat")),
+    )
 
     status = command._resolution_status(1002, "480p")
     assert status == "missing"
@@ -1068,7 +1209,6 @@ def test_auto_enqueue_missing_resolution_status_empty(media_root):
 
     status = command._resolution_status(1003, "480p")
     assert status == "empty"
-
 
 
 def test_check_renditions_defaults_all_resolutions(media_root):
@@ -1226,7 +1366,7 @@ def test_check_renditions_resolution_status_oserror(media_root, monkeypatch):
     command = check_mod.Command()
 
     target_dir = media_root / "hls" / "300" / "480p"
-    target_dir.mkdir(parents=True)
+    target_dir.mkdir(parents=True, exist_ok=True)
     manifest = target_dir / "index.m3u8"
     manifest.write_text("#EXTM3U\n", encoding="utf-8")
 
@@ -1242,5 +1382,3 @@ def test_check_renditions_resolution_status_oserror(media_root, monkeypatch):
     status, count = command._resolution_status(300, "480p")
     assert status == "MISSING"
     assert count == 0
-
-

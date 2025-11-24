@@ -199,10 +199,7 @@ def test_logout_clears_cookies(api_client: APIClient, create_user):
 
 
 def test_login_throttled_after_many_attempts(api_client: APIClient):
-    responses = [
-        _login(api_client, "missing@example.com", "wrong")
-        for _ in range(6)
-    ]
+    responses = [_login(api_client, "missing@example.com", "wrong") for _ in range(6)]
 
     assert responses[0].status_code == status.HTTP_400_BAD_REQUEST
     assert responses[-1].status_code == status.HTTP_429_TOO_MANY_REQUESTS

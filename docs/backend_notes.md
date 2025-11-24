@@ -1,6 +1,6 @@
 # Backend Notes
 
-Dieses Dokument enthält technische Hintergrundinformationen und Architekturhinweise zum Videoflix-Backend.  
+Dieses Dokument enthält technische Hintergrundinformationen und Architekturhinweise zum Videoflix-Backend.
 Die Inhalte sind nicht für die öffentliche README bestimmt, sondern dienen der internen Nachvollziehbarkeit von Designentscheidungen, Workarounds und technischen Besonderheiten.
 
 ---
@@ -11,29 +11,29 @@ Die Inhalte sind nicht für die öffentliche README bestimmt, sondern dienen der
 
 Beim Schutz der Streaming-Endpunkte (`index.m3u8`, `.ts`) traten mehrere Besonderheiten auf, die vom Standardverhalten des Django REST Frameworks abwichen:
 
-1. **Leere Cookies bei WSGI-Streaming-Requests**  
-    HLS-Aufrufe wie  
+1. **Leere Cookies bei WSGI-Streaming-Requests**
+    HLS-Aufrufe wie
    /api/video/<id>/<resolution>/index.m3u8
    /api/video/<id>/<resolution>/<segment>.ts
 
-werden auf niedrigerer Ebene über das WSGI-Interface verarbeitet.  
-Dabei bleibt `request.COOKIES` oft leer, obwohl der `Cookie:`-Header tatsächlich vom Client gesendet wird.  
-Dadurch konnte `CookieJWTAuthentication` kein `access_token` extrahieren, was zu wiederkehrenden  
+werden auf niedrigerer Ebene über das WSGI-Interface verarbeitet.
+Dabei bleibt `request.COOKIES` oft leer, obwohl der `Cookie:`-Header tatsächlich vom Client gesendet wird.
+Dadurch konnte `CookieJWTAuthentication` kein `access_token` extrahieren, was zu wiederkehrenden
 **401 Unauthorized**-Antworten führte.
 
-2. **Middleware-Redirects durch `APPEND_SLASH`**  
-   Django leitete bei Segment-Routen wie `/000.ts` automatisch per **301 Redirect** auf `/000.ts/` um.  
+2. **Middleware-Redirects durch `APPEND_SLASH`**
+   Django leitete bei Segment-Routen wie `/000.ts` automatisch per **301 Redirect** auf `/000.ts/` um.
    Diese Weiterleitung erfolgte **vor** der Authentifizierung, wodurch Cookies nicht mehr ausgewertet wurden.
 
-3. **Inkonsequente Hostnamen & PowerShell-Testprobleme**  
-   Unterschiede zwischen `localhost` und `127.0.0.1` sowie fehlerhafte Header-Übergaben  
+3. **Inkonsequente Hostnamen & PowerShell-Testprobleme**
+   Unterschiede zwischen `localhost` und `127.0.0.1` sowie fehlerhafte Header-Übergaben
    (z. B. `Accept:`-Syntax in PowerShell) führten dazu, dass Cookies in Tests nicht korrekt gesendet wurden.
 
 ---
 
 ### Lösung
 
-1. **Flexible Regex-Routen ohne Redirects**  
+1. **Flexible Regex-Routen ohne Redirects**
    Die Segment-Endpunkte wurden auf `re_path`-Patterns mit optionalem Slash umgestellt:
 
 re_path(r"^video/(?P<movie_id>\d+)/(?P<resolution>[^/]+)/(?P<segment>.+?)/?$", ...)
@@ -80,7 +80,7 @@ Alle relevanten Testläufe (pytest) wurden erfolgreich abgeschlossen.
 
 ### Dynamische Standard-Profile
 
-Uploads werden automatisch in mehrere Auflösungen transkodiert.  
+Uploads werden automatisch in mehrere Auflösungen transkodiert.
 Die Auswahl erfolgt seit dem 1080p-Upgrade dynamisch anhand der Quellhöhe (`probe_source_height` via ffprobe):
 
 | Quellhöhe (`src_h`) | Geplante Renditions |
@@ -89,12 +89,12 @@ Die Auswahl erfolgt seit dem 1080p-Upgrade dynamisch anhand der Quellhöhe (`pro
 | 720 px – 1079 px    | 480p, 720p          |
 | ≥ 1080 px           | 480p, 720p, 1080p   |
 
-Konnte die Höhe nicht ermittelt werden, fällt das System auf 480p/720p zurück.  
+Konnte die Höhe nicht ermittelt werden, fällt das System auf 480p/720p zurück.
 Das Mapping wird von `videos.domain.services_autotranscode.schedule_default_transcodes` genutzt und kann über folgende Werkzeuge geprüft werden:
 
-- `python manage.py upload_video <file.mp4> --publish`  
+- `python manage.py upload_video <file.mp4> --publish`
   (legt die Quelle unter `MEDIA_ROOT/sources/<id>.mp4` ab und stößt den Auto-Transcode an)
-- `python manage.py rqworker_transcode`  
+- `python manage.py rqworker_transcode`
   (Windows-sicherer Worker dank `rq.SimpleWorker`; Log nennt Queue, Burst-Flag und Worker-Klasse)
 - `python manage.py check_renditions --public <id> --res 480p 720p 1080p`
 - `python manage.py heal_hls_index --public <id> --res 1080p --write --rebuild-master`
@@ -114,6 +114,22 @@ Das Mapping wird von `videos.domain.services_autotranscode.schedule_default_tran
 - `check_renditions --res 1080p` zeigt den Status der 1080p-Rendition an.
 - `heal_hls_index --res 1080p --write` ergänzt fehlende Streams/Segmente direkt aus dem Dateisystem.
 
-Tests decken die neuen Pfade ab (`videos/domain/tests/test_autotranscode_signal.py`,  
-`videos/api/tests/test_hls_delivery.py`, `videos/tests/management/test_*`).  
+### CLI-Beispiele
+
+```powershell
+# Klassischer Upload (human readable)
+python manage.py upload_video "C:\Videos\demo.mp4" --title "Demo" --publish
+
+# JSON-Ausgabe für Skripte
+python manage.py upload_video "C:\Videos\demo.mp4" --publish --json
+```
+
+Beispielausgabe:
+
+```json
+{"ok": true, "video_id": 13, "copied": true, "moved": false, "rungs_enqueued": ["720p","480p"], "published": true, "thumbnail_url": ""}
+```
+
+Tests decken die neuen Pfade ab (`videos/domain/tests/test_autotranscode_signal.py`,
+`videos/api/tests/test_hls_delivery.py`, `videos/tests/management/test_*`).
 Ein vollständiger Durchlauf mit `python -m pytest -q` stellt sicher, dass Backfill und CLI-Flows grün bleiben.

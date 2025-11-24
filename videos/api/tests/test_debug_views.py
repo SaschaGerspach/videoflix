@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 from django.contrib.auth import get_user_model
-from rest_framework.test import APIClient, APIRequestFactory
+from rest_framework.test import APIRequestFactory
 
 from videos.api.serializers import VideoSerializer
 from videos.api.views.debug import HLSManifestDebugView, ThumbsDebugView
@@ -41,7 +41,9 @@ def test_debug_view_reports_manifest_details(settings, media_root, monkeypatch):
         is_published=True,
     )
     VideoStream.objects.create(video=video, resolution="480p", manifest="#EXTM3U")
-    monkeypatch.setattr("videos.api.views.debug.resolve_public_id", lambda pub: video.id)
+    monkeypatch.setattr(
+        "videos.api.views.debug.resolve_public_id", lambda pub: video.id
+    )
 
     manifest_path = Path(media_root) / "hls" / str(video.id) / "480p" / "index.m3u8"
     manifest_path.parent.mkdir(parents=True, exist_ok=True)

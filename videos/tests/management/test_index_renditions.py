@@ -11,7 +11,9 @@ from videos.domain.models import Video, VideoStream
 pytestmark = pytest.mark.django_db
 
 
-def _write_rendition(media_root: Path, real_id: int, resolution: str, segments: list[str]) -> None:
+def _write_rendition(
+    media_root: Path, real_id: int, resolution: str, segments: list[str]
+) -> None:
     target = media_root / "hls" / str(real_id) / resolution
     target.mkdir(parents=True, exist_ok=True)
     lines = ["#EXTM3U"]
@@ -21,7 +23,7 @@ def _write_rendition(media_root: Path, real_id: int, resolution: str, segments: 
     manifest = "\n".join(lines) + "\n"
     (target / "index.m3u8").write_text(manifest, encoding="utf-8")
     for idx, segment in enumerate(segments):
-        payload = f"segment-{idx}".encode("utf-8")
+        payload = f"segment-{idx}".encode()
         (target / segment).write_bytes(payload)
 
 
@@ -40,7 +42,9 @@ def test_index_renditions_command_with_real_ids(settings, tmp_path):
     _write_rendition(media_root, video.pk, "720p", ["000.ts", "001.ts"])
 
     stdout = io.StringIO()
-    call_command("index_renditions", "--real", str(video.pk), "--res", "720p", stdout=stdout)
+    call_command(
+        "index_renditions", "--real", str(video.pk), "--res", "720p", stdout=stdout
+    )
 
     output = stdout.getvalue()
     assert f"updated {video.pk}/720p" in output

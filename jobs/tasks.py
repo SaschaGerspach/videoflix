@@ -1,8 +1,9 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Callable, Iterable, Optional
+from typing import Any
+from collections.abc import Callable, Iterable
 
 from django.conf import settings
 
@@ -34,7 +35,7 @@ def _safe_run_transcode(
 
 def transcode_video_job(
     video_id: int,
-    resolutions: Optional[Iterable[str]] = None,
+    resolutions: Iterable[str] | None = None,
     *,
     force: bool = False,
     **kwargs,
@@ -46,7 +47,9 @@ def transcode_video_job(
     """
     try:
         resolved_resolutions = services._prepare_resolutions(resolutions)
-    except TranscodeError as exc:  # pragma: no cover - defensive, should be validated upstream
+    except (
+        TranscodeError
+    ) as exc:  # pragma: no cover - defensive, should be validated upstream
         return {
             "ok": False,
             "video_id": video_id,
@@ -59,7 +62,7 @@ def transcode_video_job(
     env_overridden = False
 
     if env_lower in {"dev", "prod"}:
-        setattr(settings, "ENV", "worker")
+        settings.ENV = "worker"
         env_overridden = True
 
     max_attempts = max(int(getattr(settings, "TRANSCODE_RETRY_MAX", 6)), 1)
@@ -127,7 +130,7 @@ def transcode_video_job(
                     time.sleep(delay)
     finally:
         if env_overridden:
-            setattr(settings, "ENV", original_env)
+            settings.ENV = original_env
 
     return {
         "ok": True,
