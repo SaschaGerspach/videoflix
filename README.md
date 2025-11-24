@@ -65,8 +65,8 @@ Fill the values you need:
 
 - `SECRET_KEY` - generated Django secret key
 - `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD` - only required if you want to test activation/password reset via SMTP
-- `FRONTEND_BASE_URL` - e.g. http://localhost:5500
-- `DEV_FRONTEND_ORIGIN` - default: http://localhost:5500
+- `FRONTEND_BASE_URL` - e.g. http://127.0.0.1:5500
+- `DEV_FRONTEND_ORIGIN` - default: http://127.0.0.1:5500
 
 Note: if you do not configure SMTP, activation and password reset still return valid responses; emails are caught silently for local development.
 
