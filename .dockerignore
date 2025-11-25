@@ -18,7 +18,6 @@ venv/
 # Media / runtime data
 
 media/
-uploads/
 staticfiles/
 tmp/
 temp/

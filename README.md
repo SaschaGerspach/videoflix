@@ -103,10 +103,18 @@ Registration and password reset URLs will then be printed to the web container l
 docker compose -f compose.yml logs -f web
 ```
 
-### 3. Start the stack (recommended approach on Windows)
+### 3. Start the stack
+
+**Windows (PowerShell)**
 
 ```bash
 .\start_videoflix.ps1
+```
+
+**Linux/macOS (Shell)**
+
+```bash
+chmod +x start_videoflix.sh && ./start_videoflix.sh
 ```
 
 The script runs internally:
@@ -124,8 +132,16 @@ After that the backend is available at:
 
 ### 4. Stop the stack
 
+**Windows (PowerShell)**
+
 ```bash
 .\stop_videoflix.ps1
+```
+
+**Linux/macOS (Shell)**
+
+```bash
+chmod +x stop_videoflix.sh && ./stop_videoflix.sh
 ```
 
 or manually:

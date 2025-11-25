@@ -18,7 +18,6 @@ logs/
 
 # Runtime / Media (nicht versionieren)
 media/
-uploads/
 staticfiles/
 tmp/
 temp/

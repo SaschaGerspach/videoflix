@@ -1,5 +1,4 @@
-﻿# start_videoflix.ps1
-# Startet den kompletten Stack (down -> build -> up) und wartet,
+﻿# Startet den kompletten Stack (down -> build -> up) und wartet,
 # bis die Healthchecks von postgres, redis und web grün sind.
 
 param(
@@ -87,7 +86,7 @@ docker compose -f $ComposeFile ps
 # Wenn nginx im Compose ist, lauscht i. d. R. Port 80 -> /healthz
 # sonst direkt der web-Container auf 8000
 try {
-  $healthUrls = @("http://localhost:8000/healthz/")
+  $healthUrls = @("http://127.0.0.1:8000/healthz/")
   foreach ($u in $healthUrls) {
     try {
       $r = Invoke-WebRequest -Uri $u -UseBasicParsing -TimeoutSec 5
@@ -102,4 +101,4 @@ try {
 catch { Write-Warn "Health probe skipped (Invoke-WebRequest not available)." }
 
 Write-Ok "Videoflix stack is up. Open:"
-Write-Host "  - Web via nginx:  http://localhost:8000/" -ForegroundColor Gray
+Write-Host "  - Web via nginx:  http://127.0.0.1:8000/" -ForegroundColor Gray
