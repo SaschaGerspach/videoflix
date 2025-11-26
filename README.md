@@ -68,6 +68,10 @@ Fill the values you need:
 - `FRONTEND_BASE_URL` - e.g. http://127.0.0.1:5500
 - `DEV_FRONTEND_ORIGIN` - default: http://127.0.0.1:5500
 
+**Important**
+`SECRET_KEY` must not be empty.
+ If this value is missing, the web container will fail to start.
+
 Note: if you do not configure SMTP, activation and password reset still return valid responses; emails are caught silently for local development.
 
 #### 2.1 Show the active .env (optional)
@@ -104,6 +108,18 @@ docker compose -f compose.yml logs -f web
 ```
 
 ### 3. Start the stack
+
+**Important note for manual startup**
+
+If you start the project manually using `docker compose up -d` instead of the provided start scripts, you must run:
+
+```bash
+docker compose -f compose.yml exec web python manage.py collectstatic --noinput
+```
+
+Otherwise, Django’s admin interface will not load its CSS files (because static assets have not been collected into `/app/staticfiles` and therefore cannot be served by Nginx).
+
+The start scripts for Windows and macOS already run this step automatically.
 
 **Windows (PowerShell)**
 
@@ -182,17 +198,14 @@ Response (201):
 
 #### 2. Activation
 
-The activation link in the email points to:
+The activation link in the email points to the frontend:
 
 ```bash
-GET /api/activate/<uidb64>/<token>/
+GET http://127.0.0.1:5500/pages/auth/activate.html?uid=<uidb64>&token=<token>
 ```
 
-Example:
-
-```bash
-GET /api/activate/MTM/czb8ae-55ad3af1ff5d9f437757d2a225f23845/
-```
+The frontend page reads the `uid` and `token` parameters and calls the backend
+activation endpoint to activate the account.
 
 - 200: `{"message": "Account successfully activated."}`
 - 400: `{"errors": ["Invalid or expired activation link."]}`
@@ -287,7 +300,7 @@ Response (example):
     "created_at": "2025-11-13T12:57:07.992501Z",
     "title": "Demo Video",
     "description": "",
-    "thumbnail_url": "http://localhost:8000/media/thumbs/1/default.jpg",
+    "thumbnail_url": "http://127.0.0.1:8000/media/thumbs/1/default.jpg",
     "category": "drama"
   }
 ]
@@ -296,6 +309,22 @@ Response (example):
 ---
 
 ### Video Upload (Management Command)
+
+Besides the management command, videos can also be uploaded directly through the Django admin interface under:
+
+http://127.0.0.1:8000/admin/videos/video/add/
+
+The admin form now includes a “Source file” upload field.
+When a file is uploaded:
+
+- a Video record is created
+- the source file is stored inside the media folder
+- a thumbnail is generated automatically
+- transcoding jobs (480p/720p/1080p) are scheduled **just like with API uploads**
+- no metadata fields need to be filled manually (width, height, bitrate, etc.)
+
+**There is no need to upload or provide a thumbnail manually.**
+If no thumbnail is uploaded, the system automatically generates one during transcoding.
 
 You can import a local video into the container in two steps:
 
@@ -435,3 +464,14 @@ docker compose -f compose.yml exec web pytest -q
 - #### Redis & Worker:
   - Redis serves as cache and queue backend.
   - The RQ worker processes transcoding jobs; it starts automatically with the stack.
+
+#### Thumbnails
+
+Thumbnails for videos are generated automatically during the transcoding process.
+They are stored under:
+
+```bash
+media/thumbs/<video_id>/default.jpg
+```
+
+You do not need to upload or manage thumbnails manually unless you want to override them.
