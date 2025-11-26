@@ -189,6 +189,7 @@ def test_video_list_is_idempotent() -> None:
 
 
 def test_video_serializer_uses_frontend_origin(settings, media_root):
+    settings.PUBLIC_MEDIA_BASE = ""
     settings.FRONTEND_BASE_URL = "https://static.example.com/app"
     settings.DEBUG = False
     video = _create_video()

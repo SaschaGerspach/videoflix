@@ -56,6 +56,9 @@ docker compose -f $ComposeFile up -d | Out-Null
 Write-Info "Running Django migrations…"
 docker compose -f $ComposeFile exec web python manage.py migrate --noinput
 
+Write-Info "Collecting static files…"
+docker compose -f $ComposeFile exec web python manage.py collectstatic --noinput
+
 # Dienste, deren Health wir abwarten (names = compose services)
 $servicesToCheck = @("postgres", "redis", "web", "nginx")
 

@@ -7,7 +7,7 @@ def test_normalize_email_strips_and_lowercases():
     assert utils.normalize_email("  Foo@Example.Com  ") == "foo@example.com"
 
 
-@override_settings(FRONTEND_DOMAIN="frontend.local")
+@override_settings(FRONTEND_DOMAIN="frontend.local", DEV_FRONTEND_ORIGIN="")
 def test_build_frontend_url_uses_frontend_domain():
     url = utils.build_frontend_url("activate", uidb64="uid123", token="tok456")
     assert url.startswith("http://frontend.local/pages/auth/activate.html?")
