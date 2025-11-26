@@ -19,6 +19,9 @@ class VideoAdminForm(forms.ModelForm):
         required=False, help_text="Optional thumbnail upload."
     )
 
+    _VIDEO_EXTENSIONS = (".mp4", ".mov", ".m4v", ".avi", ".mkv")
+    _IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".gif", ".webp")
+
     class Meta:
         model = Video
         fields = "__all__"
@@ -31,6 +34,32 @@ class VideoAdminForm(forms.ModelForm):
             "category",
             "is_published",
         ]
+
+    def clean_source_file(self):
+        file = self.cleaned_data.get("source_file")
+        if not file:
+            return file
+
+        content_type = getattr(file, "content_type", "") or ""
+        name = getattr(file, "name", "") or ""
+        if content_type.startswith("video/"):
+            return file
+        if name.lower().endswith(self._VIDEO_EXTENSIONS):
+            return file
+        raise forms.ValidationError("Please upload a video file (e.g. MP4).")
+
+    def clean_thumbnail_image(self):
+        file = self.cleaned_data.get("thumbnail_image")
+        if not file:
+            return file
+
+        content_type = getattr(file, "content_type", "") or ""
+        name = getattr(file, "name", "") or ""
+        if content_type.startswith("image/") or name.lower().endswith(
+            self._IMAGE_EXTENSIONS
+        ):
+            return file
+        raise forms.ValidationError("Please upload a valid image file (PNG/JPEG/etc.).")
 
 
 @admin.register(Video)
@@ -186,6 +215,7 @@ class VideoAdmin(admin.ModelAdmin):
     actions = [
         "publish_and_render_action",
         "regenerate_thumbnail_action",
+        "reencode_all_renditions",
         "enqueue_480p",
         "enqueue_720p",
         "enqueue_1080p",
@@ -222,13 +252,13 @@ class VideoAdmin(admin.ModelAdmin):
             self._save_thumbnail(obj, thumbnail_image)
 
     def _save_thumbnail(self, obj: Video, thumbnail_image):
-        thumb_path = thumb_utils.get_thumbnail_path(obj.pk)
+        thumb_path = thumb_utils.get_thumbnail_path(obj.pk, size="default")
         thumb_path.parent.mkdir(parents=True, exist_ok=True)
         with thumb_path.open("wb") as destination:
             for chunk in thumbnail_image.chunks():
                 destination.write(chunk)
 
-        obj.thumbnail_url = thumb_utils.get_thumbnail_url(obj)
+        obj.thumbnail_url = thumb_utils.get_thumbnail_url(obj, size="default")
         obj.save(update_fields=["thumbnail_url"])
 
     def get_ordering(self, request):
@@ -398,7 +428,7 @@ class VideoAdmin(admin.ModelAdmin):
         successes = failures = 0
         for video in queryset:
             try:
-                result = thumb_utils.ensure_thumbnail(video.id)
+                result = thumb_utils.ensure_thumbnail(video.id, allow_overwrite=True)
             except Exception as exc:
                 failures += 1
                 self.message_user(
@@ -413,6 +443,29 @@ class VideoAdmin(admin.ModelAdmin):
             request,
             f"Thumbnails regenerated: {successes} ok, {failures} failed.",
         )
+
+    @admin.action(description="Re-encode all renditions (480p/720p/1080p)")
+    def reencode_all_renditions(self, request, queryset):
+        resolutions = ["480p", "720p", "1080p"]
+        queued = failed = skipped_locked = 0
+        for video in queryset:
+            if job_services.is_transcode_locked(video.id):
+                skipped_locked += 1
+                continue
+            try:
+                job_services.enqueue_transcode(
+                    video.id, target_resolutions=resolutions, force=True
+                )
+            except Exception:
+                failed += 1
+            else:
+                queued += 1
+        parts = [f"Queued all renditions for {queued} video(s)."]
+        if skipped_locked:
+            parts.append(f"Skipped (locked): {skipped_locked}")
+        if failed:
+            parts.append(f"Failures: {failed}")
+        self.message_user(request, " ".join(parts))
 
     @admin.action(description="Re-encode 1080p")
     def reencode_1080p(self, request, queryset):

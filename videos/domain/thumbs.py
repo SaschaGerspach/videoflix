@@ -25,6 +25,7 @@ def ensure_thumbnail(
     size: str = "default",
     width: int | None = None,
     height: int | None = None,
+    allow_overwrite: bool = False,
 ) -> Path | None:
     """Use ffmpeg to materialise a thumbnail for the given video."""
     source_path = job_services.get_video_source_path(video_id)
@@ -38,6 +39,11 @@ def ensure_thumbnail(
 
     output_path = get_thumbnail_path(video_id, size=size)
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    if output_path.exists() and not allow_overwrite:
+        logger.info(
+            "Thumbnail skipped (exists): video_id=%s, path=%s", video_id, output_path
+        )
+        return output_path
 
     filter_expr = (
         f"scale='if(gt(a,16/9),-2,{width})':'if(gt(a,16/9),{height},-2)',"
