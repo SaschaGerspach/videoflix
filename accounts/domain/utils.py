@@ -18,15 +18,15 @@ def build_frontend_url(
     uidb64: str,
     token: str,
 ) -> str:
-    """Build absolute URLs for the activation/reset flows.
-
-    Ensures the configured frontend base contains a schema so external systems
-    (e.g. templates, emails) can safely link to it.
-    """
-    base = _resolve_frontend_base().rstrip("/")
-    path = "activate" if action == "activate" else "reset"
-    query = urlencode({"uidb64": uidb64, "token": token})
-    return f"{base}/{path}/?{query}"
+    """Build absolute URLs for the activation/reset flows pointing at the frontend."""
+    base = resolve_auth_frontend_base().rstrip("/")
+    page_map = {
+        "activate": "pages/auth/activate.html",
+        "reset": "pages/auth/confirm_password.html",
+    }
+    target_page = page_map[action]
+    query = urlencode({"uid": uidb64, "token": token})
+    return f"{base}/{target_page}?{query}"
 
 
 def build_logo_url(request: HttpRequest | None = None) -> str:
@@ -60,6 +60,26 @@ def _resolve_frontend_base() -> str:
         if candidate:
             return _ensure_scheme(candidate)
     return "http://localhost:3000"
+
+
+def resolve_auth_frontend_base() -> str:
+    """Resolve the base URL used for auth-related email links (activation/reset)."""
+    candidates = [
+        getattr(settings, "PUBLIC_FRONTEND_BASE", None),
+        getattr(settings, "DEV_FRONTEND_ORIGIN", None),
+        getattr(settings, "FRONTEND_DOMAIN", None),
+        getattr(settings, "FRONTEND_BASE_URL", None),
+        getattr(settings, "PUBLIC_API_BASE", None),
+    ]
+    for candidate in candidates:
+        candidate = (candidate or "").strip()
+        if not candidate:
+            continue
+        base = _ensure_scheme(candidate).rstrip("/")
+        if base.endswith("/api"):
+            base = base[: -len("/api")]
+        return base
+    return "http://127.0.0.1:5500"
 
 
 def _ensure_scheme(url: str) -> str:

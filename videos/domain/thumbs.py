@@ -109,6 +109,10 @@ def build_media_url(path: str | Path | None, *, request=None) -> str:
         except Exception:
             pass
 
+    media_base = _public_media_base()
+    if media_base:
+        return f"{media_base}{normalized}"
+
     frontend_origin = _frontend_origin()
     if frontend_origin:
         return f"{frontend_origin}{normalized}"
@@ -137,14 +141,42 @@ def _ensure_leading_slash(value: str) -> str:
     return "/" + value.lstrip("/")
 
 
+def _public_media_base() -> str:
+    raw = getattr(settings, "PUBLIC_MEDIA_BASE", "") or ""
+    cleaned = _extract_base_value(raw)
+    if not cleaned:
+        return ""
+    candidate = cleaned
+    if candidate.startswith("//"):
+        candidate = f"http:{candidate}"
+    parts = urlsplit(str(candidate))
+    if parts.scheme and parts.netloc:
+        path = parts.path.rstrip("/")
+        return f"{parts.scheme}://{parts.netloc}{path}"
+    return candidate.rstrip("/")
+
+
 def _frontend_origin() -> str:
-    raw = getattr(settings, "FRONTEND_BASE_URL", "") or ""
+    raw = _extract_base_value(getattr(settings, "FRONTEND_BASE_URL", "") or "")
     if not raw:
         return ""
     parts = urlsplit(str(raw))
     if parts.scheme and parts.netloc:
         return f"{parts.scheme}://{parts.netloc}"
     return raw.rstrip("/")
+
+
+def _extract_base_value(raw: str) -> str:
+    raw = (raw or "").strip()
+    if not raw:
+        return ""
+
+    for marker in ("http://", "https://", "//"):
+        idx = raw.find(marker)
+        if idx >= 0:
+            return raw[idx:].strip()
+
+    return raw
 
 
 def _resolve_video_id(video: Any) -> int | None:

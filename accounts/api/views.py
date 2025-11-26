@@ -47,6 +47,7 @@ from accounts.domain.services import (
     send_activation_email,
     send_password_reset_email,
 )
+from accounts.domain.utils import resolve_auth_frontend_base
 from drf_spectacular.utils import OpenApiExample, extend_schema
 
 logger = logging.getLogger("videoflix")
@@ -454,7 +455,9 @@ class ActivateAccountView(APIView):
     authentication_classes: list = []
     permission_classes = [AllowAny]
 
-    def post(self, request):
+    def post(
+        self, request, uidb64: str | None = None, token: str | None = None, **kwargs
+    ):
         try:
             data = request.data
         except ParseError as exc:
@@ -463,13 +466,27 @@ class ActivateAccountView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        success, errors = self._activate_user(data)
+        payload = dict(data or {})
+        if uidb64 and "uidb64" not in payload:
+            payload["uidb64"] = uidb64
+        if token and "token" not in payload:
+            payload["token"] = token
+
+        success, errors = self._activate_user(payload)
         if not success:
             return Response({"errors": errors}, status=status.HTTP_400_BAD_REQUEST)
         return Response({"message": "Account activated."}, status=status.HTTP_200_OK)
 
-    def get(self, request, uidb64: str, token: str):
-        data = {"uidb64": uidb64, "token": token}
+    def get(
+        self, request, uidb64: str | None = None, token: str | None = None, **kwargs
+    ):
+        resolved_uid = (
+            uidb64
+            or request.query_params.get("uid")
+            or request.query_params.get("uidb64")
+        )
+        resolved_token = token or request.query_params.get("token")
+        data = {"uidb64": resolved_uid, "token": resolved_token}
         success, errors = self._activate_user(data)
         accepted_format = getattr(
             getattr(request, "accepted_renderer", None), "format", None
@@ -518,7 +535,8 @@ class ActivateAccountView(APIView):
         return True, None
 
     def _get_login_url(self) -> str:
-        return "http://localhost:5500/pages/auth/login.html"
+        base = resolve_auth_frontend_base().rstrip("/")
+        return f"{base}/pages/auth/login.html"
 
     def _render_activation_result(
         self, title: str, message: str, login_url: str

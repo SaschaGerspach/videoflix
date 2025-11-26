@@ -10,15 +10,15 @@ def test_normalize_email_strips_and_lowercases():
 @override_settings(FRONTEND_DOMAIN="frontend.local")
 def test_build_frontend_url_uses_frontend_domain():
     url = utils.build_frontend_url("activate", uidb64="uid123", token="tok456")
-    assert url.startswith("http://frontend.local/activate/")
-    assert "uidb64=uid123" in url
+    assert url.startswith("http://frontend.local/pages/auth/activate.html?")
+    assert "uid=uid123" in url
     assert url.endswith("token=tok456")
 
 
 @override_settings(PUBLIC_FRONTEND_BASE="https://app.example.com")
 def test_build_frontend_url_prefers_public_frontend_base():
     url = utils.build_frontend_url("reset", uidb64="uid", token="tok")
-    assert url.startswith("https://app.example.com/reset/")
+    assert url.startswith("https://app.example.com/pages/auth/confirm_password.html?")
 
 
 def test_build_logo_url_prefers_request_absolute_uri():

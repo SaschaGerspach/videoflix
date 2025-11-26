@@ -18,7 +18,7 @@ from django.utils.html import strip_tags
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from jwt import InvalidTokenError
 
-from accounts.domain.utils import build_logo_url, normalize_email
+from accounts.domain.utils import build_frontend_url, build_logo_url, normalize_email
 
 logger = logging.getLogger("videoflix")
 
@@ -44,12 +44,7 @@ def send_activation_email(
     """
     token = default_token_generator.make_token(user)
     uidb64 = urlsafe_base64_encode(force_bytes(user.pk))
-    base_url = (
-        getattr(settings, "PUBLIC_API_BASE", None)
-        or getattr(settings, "FRONTEND_BASE_URL", None)
-        or "http://127.0.0.1:8000/api"
-    )
-    action_url = f"{base_url.rstrip('/')}/activate/{uidb64}/{token}/"
+    action_url = build_frontend_url("activate", uidb64=uidb64, token=token)
     context = _email_context(user=user, action_url=action_url)
 
     try:
@@ -86,13 +81,7 @@ def send_password_reset_email(
 
     token = default_token_generator.make_token(user)
     uidb64 = urlsafe_base64_encode(force_bytes(user.pk))
-    frontend_base = getattr(settings, "DEV_FRONTEND_ORIGIN", "http://localhost:5500")
-    reset_link = (
-        f"{frontend_base.rstrip('/')}/pages/auth/confirm_password.html"
-        f"?uid={uidb64}&token={token}"
-    )
-    # Example: http://localhost:5500/pages/auth/confirm_password.html?uid=ABC123&token=XYZ
-
+    reset_link = build_frontend_url("reset", uidb64=uidb64, token=token)
     context = _email_context(user=user, action_url=reset_link)
     try:
         _send_multipart_email(

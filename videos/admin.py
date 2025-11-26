@@ -1,17 +1,82 @@
 import shutil
 
+from django import forms
 from django.contrib import admin, messages
 from django.utils.html import format_html
 from django.utils.timezone import localtime
+from django.db import transaction
 
 from jobs.domain import services as job_services
 from videos.domain import hls as hls_utils, thumbs as thumb_utils
+from videos.domain import services as video_services, services_autotranscode
 from videos.domain.models import Video
 from videos.domain.services_autotranscode import publish_and_enqueue
 
 
+class VideoAdminForm(forms.ModelForm):
+    source_file = forms.FileField(required=False, help_text="Optional source upload.")
+    thumbnail_image = forms.ImageField(
+        required=False, help_text="Optional thumbnail upload."
+    )
+
+    class Meta:
+        model = Video
+        fields = "__all__"
+        field_order = [
+            "owner",
+            "title",
+            "description",
+            "source_file",
+            "thumbnail_image",
+            "category",
+            "is_published",
+        ]
+
+
 @admin.register(Video)
 class VideoAdmin(admin.ModelAdmin):
+    form = VideoAdminForm
+    fieldsets = (
+        (
+            "Video",
+            {
+                "fields": (
+                    "owner",
+                    "title",
+                    "description",
+                    "source_file",
+                    "thumbnail_image",
+                    "category",
+                    "is_published",
+                )
+            },
+        ),
+        (
+            "Status & Renditions",
+            {
+                "fields": (
+                    "status",
+                    "transcode_state_readonly",
+                    "available_resolutions_readonly",
+                )
+            },
+        ),
+        (
+            "Metadata",
+            {
+                "fields": (
+                    "metadata_display",
+                    "width",
+                    "height",
+                    "duration_seconds",
+                    "video_bitrate_kbps",
+                    "audio_bitrate_kbps",
+                    "codec_name",
+                )
+            },
+        ),
+    )
+
     class AvailableRenditionsFilter(admin.SimpleListFilter):
         title = "Available renditions"
         parameter_name = "available_renditions"
@@ -108,6 +173,13 @@ class VideoAdmin(admin.ModelAdmin):
         "transcode_state_readonly",
         "available_resolutions_readonly",
         "metadata_display",
+        "status",
+        "width",
+        "height",
+        "duration_seconds",
+        "video_bitrate_kbps",
+        "audio_bitrate_kbps",
+        "codec_name",
     )
     list_filter = ("is_published", AvailableRenditionsFilter, HeightRangeFilter)
     search_fields = ("title", "owner__username", "id")
@@ -122,6 +194,42 @@ class VideoAdmin(admin.ModelAdmin):
         "reencode_480p",
         "purge_hls",
     ]
+
+    def save_model(self, request, obj, form, change):
+        source_file = form.cleaned_data.get("source_file")
+        thumbnail_image = form.cleaned_data.get("thumbnail_image")
+
+        super().save_model(request, obj, form, change)
+
+        if not source_file:
+            if thumbnail_image:
+                self._save_thumbnail(obj, thumbnail_image)
+            return
+
+        target_path = job_services.get_video_source_path(obj.pk)
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        with target_path.open("wb") as destination:
+            for chunk in source_file.chunks():
+                destination.write(chunk)
+
+        video_services.ensure_source_metadata(obj)
+
+        transaction.on_commit(
+            lambda: services_autotranscode.schedule_default_transcodes(obj.pk)
+        )
+
+        if thumbnail_image:
+            self._save_thumbnail(obj, thumbnail_image)
+
+    def _save_thumbnail(self, obj: Video, thumbnail_image):
+        thumb_path = thumb_utils.get_thumbnail_path(obj.pk)
+        thumb_path.parent.mkdir(parents=True, exist_ok=True)
+        with thumb_path.open("wb") as destination:
+            for chunk in thumbnail_image.chunks():
+                destination.write(chunk)
+
+        obj.thumbnail_url = thumb_utils.get_thumbnail_url(obj)
+        obj.save(update_fields=["thumbnail_url"])
 
     def get_ordering(self, request):
         base_ordering = ["-updated_at", "-height", "title"]

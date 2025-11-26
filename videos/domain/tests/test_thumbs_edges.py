@@ -104,6 +104,7 @@ def test_get_thumbnail_url_uses_frontend_origin_when_no_request(settings, tmp_pa
     thumb_path = tmp_path / "thumbs" / str(video_id) / "default.jpg"
     thumb_path.parent.mkdir(parents=True, exist_ok=True)
     thumb_path.write_bytes(b"thumb")
+    settings.PUBLIC_MEDIA_BASE = ""
     settings.FRONTEND_BASE_URL = "https://cdn.example.com/app"
     settings.DEBUG = False
 
@@ -121,6 +122,19 @@ def test_get_thumbnail_url_uses_debug_origin(settings, tmp_path):
 
     url = thumbs.get_thumbnail_url(video_id)
     assert url == "http://127.0.0.1:8000/media/thumbs/16/default.jpg"
+
+
+def test_get_thumbnail_url_strips_env_assignment_prefix(settings, tmp_path):
+    video_id = 17
+    thumb_path = tmp_path / "thumbs" / str(video_id) / "default.jpg"
+    thumb_path.parent.mkdir(parents=True, exist_ok=True)
+    thumb_path.write_bytes(b"thumb")
+    settings.PUBLIC_MEDIA_BASE = "PUBLIC_MEDIA_BASE=http://127.0.0.1:8000"
+    settings.FRONTEND_BASE_URL = "FRONTEND_BASE_URL=https://cdn.example.com/app"
+    settings.DEBUG = False
+
+    url = thumbs.get_thumbnail_url(video_id)
+    assert url == "http://127.0.0.1:8000/media/thumbs/17/default.jpg"
 
 
 def test_ensure_thumbnail_handles_missing_ffmpeg_binary(monkeypatch, tmp_path):
