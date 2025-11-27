@@ -85,140 +85,188 @@ class VideoSegmentView(MediaSegmentBaseView):
         ],
     )
     def get(self, request, movie_id: int, resolution: str):
-        if settings.DEBUG:
-            access_cookie_name = getattr(settings, "ACCESS_COOKIE_NAME", "access_token")
-            cookies = getattr(request, "COOKIES", {}) or {}
-            logger.debug(
-                "VideoSegmentView.get path=%s trailing_slash=%s authenticated=%s cookie_present=%s raw_cookie=%s accept=%s",
-                request.get_full_path(),
-                request.path.endswith("/"),
-                bool(getattr(request, "user", None) and request.user.is_authenticated),
-                bool(cookies.get(access_cookie_name)),
-                bool(request.META.get("HTTP_COOKIE")),
-                request.META.get("HTTP_ACCEPT"),
-            )
-        # Normalise public id before auth/selector logic: if it is not an int we bail out early.
+        """Return the master playlist by checking filesystem first, then DB."""
+        self._log_debug_request(request)
+        real_id = self._resolve_real_id(movie_id)
+        if real_id is None:
+            return self._not_found_json()
+
+        validation = self._validate_request(real_id, resolution)
+        if not isinstance(validation, dict):
+            return validation
+
+        resolution_value = validation["resolution"]
+        video = self._get_video_or_404(real_id)
+        if video is None:
+            return self._not_found_json()
+
+        if not _user_can_access(request, video):
+            return self._not_found_json()
+
+        allowed_renditions = _get_allowed_renditions()
+        fs_exists, manifest_path = self._manifest_paths(real_id, resolution_value)
+
+        fs_response = self._serve_filesystem_manifest(
+            request, real_id, resolution_value, manifest_path, fs_exists
+        )
+        if fs_response is not None:
+            return fs_response
+
+        if allowed_renditions and resolution_value not in allowed_renditions:
+            resp = self._not_found_json()
+            return _debug_not_found(resp, "resolution-not-allowed")
+
+        stream = self._get_stream(real_id, resolution_value)
+        if stream is None:
+            return self._not_found_json()
+
+        db_response = self._serve_db_manifest(
+            request, stream, manifest_path, resolution_value
+        )
+        if db_response is not None:
+            return db_response
+
+        resp = self._not_found_json()
+        return _debug_not_found(resp, "no-manifest-file-and-db-empty")
+
+    def _log_debug_request(self, request) -> None:
+        """Log request details when DEBUG is enabled."""
+        if not settings.DEBUG:
+            return
+
+        access_cookie_name = getattr(settings, "ACCESS_COOKIE_NAME", "access_token")
+        cookies = getattr(request, "COOKIES", {}) or {}
+        logger.debug(
+            "VideoSegmentView.get path=%s trailing_slash=%s authenticated=%s cookie_present=%s raw_cookie=%s accept=%s",
+            request.get_full_path(),
+            request.path.endswith("/"),
+            bool(getattr(request, "user", None) and request.user.is_authenticated),
+            bool(cookies.get(access_cookie_name)),
+            bool(request.META.get("HTTP_COOKIE")),
+            request.META.get("HTTP_ACCEPT"),
+        )
+
+    def _resolve_real_id(self, movie_id: int | str) -> int | None:
+        """Resolve a public movie id to the real database id."""
         try:
             movie_id = int(movie_id)
         except (TypeError, ValueError):
-            return self._json_response(
-                {"errors": {"non_field_errors": ["Video manifest not found."]}},
-                status.HTTP_404_NOT_FOUND,
-            )
+            return None
         try:
-            real_id = resolve_public_id(movie_id)
+            return resolve_public_id(movie_id)
         except Video.DoesNotExist:
-            return self._json_response(
-                {"errors": {"non_field_errors": ["Video manifest not found."]}},
-                status.HTTP_404_NOT_FOUND,
-            )
+            return None
 
-        resolution = (resolution or "").strip().lower()
-
+    def _validate_request(self, real_id: int, resolution: str):
+        """Validate incoming parameters; return validated data or an early response."""
+        resolution_value = (resolution or "").strip().lower()
         serializer = VideoSegmentRequestSerializer(
-            data={"movie_id": real_id, "resolution": resolution}
+            data={"movie_id": real_id, "resolution": resolution_value}
         )
         if not serializer.is_valid():
             return self._json_response(
                 {"errors": serializer.errors}, status.HTTP_400_BAD_REQUEST
             )
+        return serializer.validated_data
 
+    def _get_video_or_404(self, real_id: int) -> Video | None:
+        """Fetch the video or return None to trigger a 404."""
         try:
-            video = Video.objects.get(pk=real_id)
+            return Video.objects.get(pk=real_id)
         except Video.DoesNotExist:
-            return self._json_response(
-                {"errors": {"non_field_errors": ["Video manifest not found."]}},
-                status.HTTP_404_NOT_FOUND,
-            )
+            return None
 
-        if not _user_can_access(request, video):
-            return self._json_response(
-                {"errors": {"non_field_errors": ["Video manifest not found."]}},
-                status.HTTP_404_NOT_FOUND,
-            )
-
-        resolution_value = serializer.validated_data["resolution"]
-        allowed_renditions = _get_allowed_renditions()
+    def _manifest_paths(self, real_id: int, resolution_value: str):
+        """Return whether the rendition exists on disk and the manifest path."""
         fs_exists, fs_manifest_path, _ = fs_rendition_exists(real_id, resolution_value)
         manifest_path = (
             fs_manifest_path
             if fs_manifest_path.parts
             else find_manifest_path(real_id, resolution_value)
         )
+        return fs_exists, manifest_path
 
-        if fs_exists:
-            try:
-                manifest_bytes = manifest_path.read_bytes()
-            except OSError:
-                manifest_bytes = None
-            else:
-                if is_stub_manifest(manifest_bytes):
-                    resp = self._json_response(
-                        {"errors": {"non_field_errors": ["Video manifest not found."]}},
-                        status.HTTP_404_NOT_FOUND,
-                    )
-                    return _debug_not_found(resp, "manifest-stub")
-                if self._accepts_json_only(request):
-                    resp = self._json_response(
-                        {"errors": {"non_field_errors": ["Video manifest not found."]}},
-                        status.HTTP_404_NOT_FOUND,
-                    )
-                    return _debug_not_found(resp, "json-only-not-allowed")
-                self._ensure_accept_header(request, M3U8Renderer.media_type)
-                response = FileResponse(manifest_path.open("rb"))
-                response["Content-Type"] = M3U8Renderer.media_type
-                response["Content-Disposition"] = 'inline; filename="index.m3u8"'
-                _set_cache_headers(response, manifest_path)
-                try:
-                    index_existing_rendition(real_id, resolution_value)
-                except Exception:  # pragma: no cover - defensive logging only
-                    logger.exception(
-                        "Self-heal indexing failed for manifest video_id=%s resolution=%s",
-                        real_id,
-                        resolution_value,
-                    )
-                return response
-
-        if allowed_renditions and resolution_value not in allowed_renditions:
-            resp = self._json_response(
-                {"errors": {"non_field_errors": ["Video manifest not found."]}},
-                status.HTTP_404_NOT_FOUND,
-            )
-            return _debug_not_found(resp, "resolution-not-allowed")
+    def _serve_filesystem_manifest(
+        self,
+        request,
+        real_id: int,
+        resolution_value: str,
+        manifest_path,
+        fs_exists: bool,
+    ):
+        """Return a manifest response if a non-stub filesystem file is available."""
+        if not fs_exists:
+            return None
 
         try:
-            stream = VideoStream.objects.select_related("video").get(
+            manifest_bytes = manifest_path.read_bytes()
+        except OSError:
+            manifest_bytes = None
+
+        if manifest_bytes is None:
+            return None
+
+        if is_stub_manifest(manifest_bytes):
+            resp = self._not_found_json()
+            return _debug_not_found(resp, "manifest-stub")
+
+        if self._accepts_json_only(request):
+            resp = self._not_found_json()
+            return _debug_not_found(resp, "json-only-not-allowed")
+
+        self._ensure_accept_header(request, M3U8Renderer.media_type)
+        response = FileResponse(manifest_path.open("rb"))
+        response["Content-Type"] = M3U8Renderer.media_type
+        response["Content-Disposition"] = 'inline; filename="index.m3u8"'
+        _set_cache_headers(response, manifest_path)
+        try:
+            index_existing_rendition(real_id, resolution_value)
+        except Exception:  # pragma: no cover - defensive logging only
+            logger.exception(
+                "Self-heal indexing failed for manifest video_id=%s resolution=%s",
+                real_id,
+                resolution_value,
+            )
+        return response
+
+    def _get_stream(self, real_id: int, resolution_value: str) -> VideoStream | None:
+        """Return the stream for the given video/resolution or None."""
+        try:
+            return VideoStream.objects.select_related("video").get(
                 video_id=real_id,
                 resolution=resolution_value,
             )
         except VideoStream.DoesNotExist:
-            return self._json_response(
-                {"errors": {"non_field_errors": ["Video manifest not found."]}},
-                status.HTTP_404_NOT_FOUND,
-            )
+            return None
 
+    def _serve_db_manifest(
+        self, request, stream: VideoStream, manifest_path, resolution_value: str
+    ):
+        """Write DB manifest to disk and stream it if available."""
         db_manifest = stream.manifest or ""
-        if db_manifest and not is_stub_manifest(db_manifest):
-            manifest_path.parent.mkdir(parents=True, exist_ok=True)
-            manifest_path.write_text(db_manifest, encoding="utf-8")
-            if self._accepts_json_only(request):
-                resp = self._json_response(
-                    {"errors": {"non_field_errors": ["Video manifest not found."]}},
-                    status.HTTP_404_NOT_FOUND,
-                )
-                return _debug_not_found(resp, "json-only-not-allowed")
-            self._ensure_accept_header(request, M3U8Renderer.media_type)
-            response = FileResponse(manifest_path.open("rb"))
-            response["Content-Type"] = M3U8Renderer.media_type
-            response["Content-Disposition"] = 'inline; filename="index.m3u8"'
-            _set_cache_headers(response, manifest_path)
-            return response
+        if not db_manifest or is_stub_manifest(db_manifest):
+            return None
 
-        resp = self._json_response(
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text(db_manifest, encoding="utf-8")
+
+        if self._accepts_json_only(request):
+            resp = self._not_found_json()
+            return _debug_not_found(resp, "json-only-not-allowed")
+
+        self._ensure_accept_header(request, M3U8Renderer.media_type)
+        response = FileResponse(manifest_path.open("rb"))
+        response["Content-Type"] = M3U8Renderer.media_type
+        response["Content-Disposition"] = 'inline; filename="index.m3u8"'
+        _set_cache_headers(response, manifest_path)
+        return response
+
+    def _not_found_json(self):
+        """Return the standard manifest not found JSON response."""
+        return self._json_response(
             {"errors": {"non_field_errors": ["Video manifest not found."]}},
             status.HTTP_404_NOT_FOUND,
         )
-        return _debug_not_found(resp, "no-manifest-file-and-db-empty")
 
 
 class VideoManifestView(VideoSegmentView):

@@ -57,6 +57,7 @@ ERROR_RESPONSE_REF = {"$ref": "#/components/schemas/ErrorResponse"}
 
 
 def _base_cookie_kwargs(request):
+    """Build base cookie settings honoring session and dev overrides."""
     path = getattr(settings, "SESSION_COOKIE_PATH", "/")
     domain = getattr(settings, "SESSION_COOKIE_DOMAIN", None)
     kwargs = {
@@ -172,6 +173,7 @@ def register(request):
 @permission_classes([AllowAny])
 @throttle_classes([ScopedRateThrottle])
 def login(request):
+    """Authenticate a user and set access/refresh cookies on success."""
     serializer = LoginSerializer(request.data)
 
     if not serializer.is_valid():
@@ -191,6 +193,11 @@ def login(request):
         )
         return Response({"errors": format_validation_error(exc)}, status=status_code)
 
+    return _login_success_response(request, user, tokens)
+
+
+def _login_success_response(request, user, tokens):
+    """Return the successful login response with access and refresh cookies set."""
     response = Response(
         {
             "detail": "Login successful",
@@ -198,7 +205,6 @@ def login(request):
         },
         status=status.HTTP_200_OK,
     )
-
     access_cookie_kwargs = _base_cookie_kwargs(request)
     access_cookie_kwargs["max_age"] = tokens["access_max_age"]
 
@@ -226,6 +232,7 @@ if hasattr(login, "cls"):
 @authentication_classes([])
 @permission_classes([AllowAny])
 def logout_view(request):
+    """Invalidate the refresh token and clear auth cookies."""
     try:
         data = request.data
     except ParseError as exc:
@@ -248,6 +255,11 @@ def logout_view(request):
             {"errors": format_validation_error(exc)}, status=status.HTTP_400_BAD_REQUEST
         )
 
+    return _logout_success_response(request)
+
+
+def _logout_success_response(request):
+    """Build logout response clearing both access and refresh cookies."""
     response = Response(
         {
             "detail": "Logout successful! All tokens will be deleted. Refresh token is now invalid."
@@ -292,6 +304,7 @@ def logout_view(request):
 @authentication_classes([])
 @permission_classes([AllowAny])
 def token_refresh(request):
+    """Issue a new access token based on a valid refresh token cookie."""
     try:
         data = request.data
     except ParseError as exc:
@@ -321,6 +334,11 @@ def token_refresh(request):
             status=status.HTTP_401_UNAUTHORIZED,
         )
 
+    return _refresh_success_response(request, token_data)
+
+
+def _refresh_success_response(request, token_data: dict):
+    """Return refresh response and update the access cookie."""
     response = Response(
         {"detail": "Token refreshed", "access": token_data["access"]},
         status=status.HTTP_200_OK,
@@ -452,6 +470,8 @@ def password_confirm(request, uidb64: str, token: str):
     ],
 )
 class ActivateAccountView(APIView):
+    """Handle activation links for newly registered accounts."""
+
     authentication_classes: list = []
     permission_classes = [AllowAny]
 
@@ -480,51 +500,17 @@ class ActivateAccountView(APIView):
     def get(
         self, request, uidb64: str | None = None, token: str | None = None, **kwargs
     ):
-        resolved_uid = (
-            uidb64
-            or request.query_params.get("uid")
-            or request.query_params.get("uidb64")
-        )
-        resolved_token = token or request.query_params.get("token")
-        data = {"uidb64": resolved_uid, "token": resolved_token}
+        """Validate activation tokens from query params and render HTML or JSON."""
+        data = self._resolve_activation_data(request, uidb64, token)
         success, errors = self._activate_user(data)
-        accepted_format = getattr(
-            getattr(request, "accepted_renderer", None), "format", None
-        )
-        accepts_html = "text/html" in (request.META.get("HTTP_ACCEPT") or "")
-        wants_html = accepted_format == "html" or accepts_html
 
-        if wants_html:
-            login_url = self._get_login_url()
-            if success:
-                content = self._render_activation_result(
-                    title="Account erfolgreich aktiviert",
-                    message="Du kannst dich jetzt einloggen.",
-                    login_url=login_url,
-                )
-                return HttpResponse(
-                    content, status=status.HTTP_200_OK, content_type="text/html"
-                )
-            content = self._render_activation_result(
-                title="Aktivierung fehlgeschlagen",
-                message="Der Link ist ungueltig oder abgelaufen.",
-                login_url=login_url,
-            )
-            return HttpResponse(
-                content, status=status.HTTP_400_BAD_REQUEST, content_type="text/html"
-            )
+        if self._wants_html_response(request):
+            return self._build_html_response(success)
 
-        if success:
-            return Response(
-                {"message": "Account successfully activated."},
-                status=status.HTTP_200_OK,
-            )
-        return Response(
-            {"errors": ["Invalid or expired activation link."]},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
+        return self._build_json_response(success, errors)
 
     def _activate_user(self, data: dict):
+        """Validate and perform activation using the given payload."""
         serializer = ActivationSerializer(data)
         if not serializer.is_valid():
             return False, serializer.errors
@@ -535,12 +521,67 @@ class ActivateAccountView(APIView):
         return True, None
 
     def _get_login_url(self) -> str:
+        """Return the login URL for the frontend auth page."""
         base = resolve_auth_frontend_base().rstrip("/")
         return f"{base}/pages/auth/login.html"
+
+    def _resolve_activation_data(
+        self, request, uidb64: str | None, token: str | None
+    ) -> dict:
+        """Gather activation params from URL path or query parameters."""
+        resolved_uid = (
+            uidb64
+            or request.query_params.get("uid")
+            or request.query_params.get("uidb64")
+        )
+        resolved_token = token or request.query_params.get("token")
+        return {"uidb64": resolved_uid, "token": resolved_token}
+
+    def _wants_html_response(self, request) -> bool:
+        """Determine whether the client expects an HTML response."""
+        accepted_format = getattr(
+            getattr(request, "accepted_renderer", None), "format", None
+        )
+        accepts_html = "text/html" in (request.META.get("HTTP_ACCEPT") or "")
+        return accepted_format == "html" or accepts_html
+
+    def _build_html_response(self, success: bool) -> HttpResponse:
+        """Render a translated HTML activation outcome."""
+        login_url = self._get_login_url()
+        if success:
+            content = self._render_activation_result(
+                title="Account erfolgreich aktiviert",
+                message="Du kannst dich jetzt einloggen.",
+                login_url=login_url,
+            )
+            return HttpResponse(
+                content, status=status.HTTP_200_OK, content_type="text/html"
+            )
+        content = self._render_activation_result(
+            title="Aktivierung fehlgeschlagen",
+            message="Der Link ist ungueltig oder abgelaufen.",
+            login_url=login_url,
+        )
+        return HttpResponse(
+            content, status=status.HTTP_400_BAD_REQUEST, content_type="text/html"
+        )
+
+    def _build_json_response(self, success: bool, errors):
+        """Return a JSON activation response matching prior behavior."""
+        if success:
+            return Response(
+                {"message": "Account successfully activated."},
+                status=status.HTTP_200_OK,
+            )
+        return Response(
+            {"errors": ["Invalid or expired activation link."]},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
     def _render_activation_result(
         self, title: str, message: str, login_url: str
     ) -> str:
+        """Render a minimal HTML page describing the activation outcome."""
         safe_title = escape(title)
         safe_message = escape(message)
         safe_login = escape(login_url)

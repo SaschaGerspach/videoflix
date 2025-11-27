@@ -106,8 +106,21 @@ def run_diagnose_backend(
 
 
 def format_diagnose_backend_text(report: dict[str, Any], verbose: bool) -> str:
+    """Render a human-readable diagnostics report for backend health checks."""
     lines: list[str] = []
-    summary = report.get("summary", {})
+    lines.extend(_diagnose_settings_lines(report, verbose))
+    lines.extend(_diagnose_video_lines(report, verbose))
+    lines.extend(_diagnose_filesystem_lines(report, verbose))
+    lines.extend(_diagnose_routing_lines(report, verbose))
+    lines.extend(_diagnose_view_lines(report, verbose))
+    lines.extend(_diagnose_header_lines(report, verbose))
+    lines.extend(_diagnose_debug_lines(report, verbose))
+    lines.append(_diagnose_summary_line(report))
+    return "\n".join(lines)
+
+
+def _diagnose_settings_lines(report: dict[str, Any], verbose: bool) -> list[str]:
+    """Summarise settings-related diagnostics including warnings."""
     settings_summary = report.get("settings", {})
     icon = "✅"
     message = (
@@ -117,7 +130,7 @@ def format_diagnose_backend_text(report: dict[str, Any], verbose: bool) -> str:
     warnings = settings_summary.get("warnings", [])
     if warnings and not verbose:
         message += f" warnings={len(warnings)}"
-    lines.append(message)
+    lines = [message]
     if verbose:
         lines.append(
             f"   allowed_renditions={settings_summary.get('allowed_renditions')}"
@@ -130,14 +143,18 @@ def format_diagnose_backend_text(report: dict[str, Any], verbose: bool) -> str:
         lines.append(f"   rq={settings_summary.get('rq')}")
         for warning in settings_summary.get("warnings", []):
             lines.append(f"   warning: {warning}")
+    return lines
 
+
+def _diagnose_video_lines(report: dict[str, Any], verbose: bool) -> list[str]:
+    """Describe video resolution status from the diagnostics report."""
     videos = report.get("videos", [])
     resolved_count = sum(
         1 for item in videos if "real" in item and not item.get("error")
     )
     videos_ok = resolved_count == len(videos)
     icon = "✅" if videos_ok else "❌"
-    lines.append(f"{icon} Videos: {resolved_count}/{len(videos)} resolved")
+    lines = [f"{icon} Videos: {resolved_count}/{len(videos)} resolved"]
     if verbose:
         for item in videos:
             if item.get("error"):
@@ -147,30 +164,34 @@ def format_diagnose_backend_text(report: dict[str, Any], verbose: bool) -> str:
                     f"   public={item['public']} real={item['real']} title={item.get('title')} "
                     f"created={item.get('created_at')}"
                 )
+    return lines
 
+
+def _diagnose_filesystem_lines(report: dict[str, Any], verbose: bool) -> list[str]:
+    """Summarise filesystem manifest checks including per-entry details."""
     fs_entries = report.get("fs_checks", [])
     fs_failures = sum(1 for entry in fs_entries if entry.get("failure"))
     icon = "✅" if fs_failures == 0 else "❌"
-    lines.append(
+    lines = [
         f"{icon} Filesystem: {len(fs_entries) - fs_failures}/{len(fs_entries)} manifests healthy"
-    )
+    ]
     if verbose:
         for entry in fs_entries:
-            status = "ok"
-            if entry.get("failure"):
-                status = "failed"
+            status = "failed" if entry.get("failure") else "ok"
             lines.append(
                 f"   public={entry['public']} res={entry['resolution']} status={status} "
                 f"manifest={entry.get('manifest')}"
             )
+    return lines
 
+
+def _diagnose_routing_lines(report: dict[str, Any], verbose: bool) -> list[str]:
+    """Report URL routing results from diagnostics."""
     routing = report.get("routing", {})
     paths = routing.get("paths", [])
     routing_failures = routing.get("failures", 0)
     icon = "✅" if routing_failures == 0 else "❌"
-    lines.append(
-        f"{icon} Routing: {len(paths) - routing_failures}/{len(paths)} paths ok"
-    )
+    lines = [f"{icon} Routing: {len(paths) - routing_failures}/{len(paths)} paths ok"]
     if verbose:
         for path_info in paths:
             if path_info.get("ok"):
@@ -179,20 +200,28 @@ def format_diagnose_backend_text(report: dict[str, Any], verbose: bool) -> str:
                 lines.append(
                     f"   {path_info['path']} ! {path_info.get('error', 'Unexpected resolver result')}"
                 )
+    return lines
 
+
+def _diagnose_view_lines(report: dict[str, Any], verbose: bool) -> list[str]:
+    """Summarise manifest and segment view invocation results."""
     views_info = report.get("views", {})
     view_failures = views_info.get("failures", 0)
     icon = "✅" if view_failures == 0 else "❌"
-    lines.append(
+    lines = [
         f"{icon} Views: manifest={views_info.get('manifest', {}).get('status')} "
         f"segment={views_info.get('segment', {}).get('status')}"
-    )
+    ]
     if verbose and views_info.get("sample"):
         lines.append(f"   sample={views_info['sample']}")
         for field in ("manifest", "segment"):
             details = views_info.get(field, {})
             lines.append(f"   {field}: {details}")
+    return lines
 
+
+def _diagnose_header_lines(report: dict[str, Any], verbose: bool) -> list[str]:
+    """Summarise header evaluations for manifest and segment responses."""
     headers_block = report.get("headers", {}) or {}
     manifest_header = headers_block.get("manifest") or {}
     segment_header = headers_block.get("segment") or {}
@@ -214,27 +243,34 @@ def format_diagnose_backend_text(report: dict[str, Any], verbose: bool) -> str:
     notes_count = sum(len(entry.get("notes", [])) for entry in header_entries)
     if notes_count and not verbose:
         header_message += f" notes={notes_count}"
-    lines.append(header_message)
+    lines = [header_message]
     if verbose:
         lines.append(f"   manifest_headers={manifest_header}")
         lines.append(f"   segment_headers={segment_header}")
         if headers_block.get("cors_options"):
             lines.append(f"   cors_options={headers_block['cors_options']}")
+    return lines
 
+
+def _diagnose_debug_lines(report: dict[str, Any], verbose: bool) -> list[str]:
+    """Include debug endpoint diagnostics such as queue health."""
     debug_info = report.get("debug", {})
     debug_failures = debug_info.get("failures", 0)
     icon = "✅" if debug_failures == 0 else "❌"
     queue_status = debug_info.get("queue_health", {}).get("importable")
-    lines.append(f"{icon} Debug endpoints: queue_health importable={queue_status}")
+    lines = [f"{icon} Debug endpoints: queue_health importable={queue_status}"]
     if verbose:
         lines.append(f"   queue_health={debug_info.get('queue_health')}")
         lines.append(f"   debug_renditions={debug_info.get('debug_renditions')}")
+    return lines
 
+
+def _diagnose_summary_line(report: dict[str, Any]) -> str:
+    """Return a final summary line showing failure and warning counts."""
+    summary = report.get("summary", {})
     failure_count = summary.get("failures", 0)
     warning_count = summary.get("warnings", 0)
-    lines.append(f"Summary: failures={failure_count} warnings={warning_count}")
-
-    return "\n".join(lines)
+    return f"Summary: failures={failure_count} warnings={warning_count}"
 
 
 def run_heal_hls_index(
@@ -246,6 +282,7 @@ def run_heal_hls_index(
     write: bool = False,
     rebuild_master: bool = False,
 ) -> dict[str, Any]:
+    """Heal HLS index data by reconciling filesystem manifests with database streams."""
     report: list[dict[str, Any]] = []
 
     public_ids, discovery_warnings = _collect_public_ids(settings, publics, resolutions)
@@ -257,7 +294,42 @@ def run_heal_hls_index(
         }
 
     stream_fields = _stream_fields()
+    ordered_public = _ordered_public_ids(public_ids)
 
+    for public_id in ordered_public:
+        entry = _init_heal_entry(public_id)
+        report.append(entry)
+
+        real_id = _resolve_real_id_for_heal(public_id, entry)
+        if real_id is None:
+            continue
+        video = _get_video_for_heal(real_id, entry)
+        if video is None:
+            continue
+
+        resolution_set = _normalise_resolutions(settings, resolutions)
+        stream_cache = _build_stream_cache(real_id, resolution_set)
+
+        ready_any = _process_resolutions(
+            entry=entry,
+            real_id=real_id,
+            resolution_set=resolution_set,
+            stream_cache=stream_cache,
+            media_root=media_root,
+            stream_fields=stream_fields,
+            write=write,
+        )
+
+        _maybe_rebuild_master_playlist(
+            entry, real_id, ready_any, rebuild_master=rebuild_master, write=write
+        )
+        _maybe_generate_thumbnail(entry, real_id, ready_any, write)
+
+    return {"videos": report, "warnings": discovery_warnings}
+
+
+def _ordered_public_ids(public_ids: Sequence[int]) -> list[int]:
+    """Return public IDs deduplicated while preserving order."""
     seen_public: set[int] = set()
     ordered_public: list[int] = []
     for value in public_ids:
@@ -265,155 +337,244 @@ def run_heal_hls_index(
             continue
         seen_public.add(value)
         ordered_public.append(value)
+    return ordered_public
 
-    for public_id in ordered_public:
-        entry = {
-            "public": public_id,
-            "real": None,
-            "actions": [],
-            "warnings": [],
-            "errors": [],
-        }
-        report.append(entry)
 
-        try:
-            real_id = selectors.resolve_public_id(public_id)
-        except Video.DoesNotExist:
-            entry["warnings"].append("Could not resolve public ID to a video record.")
-            continue
-        entry["real"] = real_id
+def _init_heal_entry(public_id: int) -> dict[str, Any]:
+    """Initialise the per-video heal report entry."""
+    return {
+        "public": public_id,
+        "real": None,
+        "actions": [],
+        "warnings": [],
+        "errors": [],
+    }
 
-        video = Video.objects.filter(pk=real_id).first()
-        if video is None:
-            entry["warnings"].append("Video missing in database.")
-            continue
 
-        resolution_set = _normalise_resolutions(settings, resolutions)
-        stream_cache = {
-            stream.resolution: stream
-            for stream in VideoStream.objects.filter(
-                video_id=real_id, resolution__in=resolution_set
+def _resolve_real_id_for_heal(public_id: int, entry: dict[str, Any]) -> int | None:
+    """Resolve a public ID to a real video ID, recording warnings on failure."""
+    try:
+        real_id = selectors.resolve_public_id(public_id)
+    except Video.DoesNotExist:
+        entry["warnings"].append("Could not resolve public ID to a video record.")
+        return None
+    entry["real"] = real_id
+    return real_id
+
+
+def _get_video_for_heal(real_id: int, entry: dict[str, Any]):
+    """Fetch the video object if present; warn when missing."""
+    video = Video.objects.filter(pk=real_id).first()
+    if video is None:
+        entry["warnings"].append("Video missing in database.")
+    return video
+
+
+def _build_stream_cache(real_id: int, resolution_set: Sequence[str]) -> dict[str, Any]:
+    """Return a resolution->VideoStream cache for quick lookups."""
+    return {
+        stream.resolution: stream
+        for stream in VideoStream.objects.filter(
+            video_id=real_id, resolution__in=resolution_set
+        )
+    }
+
+
+def _process_resolutions(
+    *,
+    entry: dict[str, Any],
+    real_id: int,
+    resolution_set: Sequence[str],
+    stream_cache: dict[str, Any],
+    media_root: Path,
+    stream_fields: Sequence[str],
+    write: bool,
+) -> bool:
+    """Process all requested resolutions for a video and update the report entry."""
+    ready_any = False
+    for resolution in resolution_set:
+        info = _scan_rendition(media_root, real_id, resolution)
+        _record_rendition_details(entry, resolution, info)
+
+        if info.errors:
+            entry["errors"].extend(info.errors)
+
+        stream = stream_cache.get(resolution)
+        if info.has_files:
+            ready_any = True
+
+        manifest_text, manifest_error = _manifest_text(info)
+        if manifest_error:
+            entry["errors"].append(manifest_error)
+
+        if stream is None:
+            _create_stream_if_needed(
+                entry, real_id, resolution, info, manifest_text, stream_fields, write
             )
-        }
+            continue
 
-        ready_any = False
+        if _is_stale_stream(entry, resolution, info):
+            continue
 
-        for resolution in resolution_set:
-            info = _scan_rendition(media_root, real_id, resolution)
-            entry.setdefault("details", {})[resolution] = {
-                "manifest": str(info.manifest_path) if info.manifest_path else None,
-                "exists": info.exists,
-                "bytes": info.bytes,
-                "is_stub": info.is_stub,
-                "ts_count": info.ts_count,
-                "min_bytes": info.min_bytes,
-                "max_bytes": info.max_bytes,
-                "errors": info.errors,
-            }
+        _update_stream_if_needed(
+            entry,
+            resolution,
+            stream,
+            manifest_text,
+            info.ts_count,
+            stream_fields,
+            write,
+        )
+    return ready_any
 
-            if info.errors:
-                entry["errors"].extend(info.errors)
 
-            stream = stream_cache.get(resolution)
+def _record_rendition_details(entry: dict[str, Any], resolution: str, info) -> None:
+    """Store rendition scan results on the report entry."""
+    entry.setdefault("details", {})[resolution] = {
+        "manifest": str(info.manifest_path) if info.manifest_path else None,
+        "exists": info.exists,
+        "bytes": info.bytes,
+        "is_stub": info.is_stub,
+        "ts_count": info.ts_count,
+        "min_bytes": info.min_bytes,
+        "max_bytes": info.max_bytes,
+        "errors": info.errors,
+    }
 
-            if info.has_files:
-                ready_any = True
 
-            manifest_text: str | None = None
-            if info.exists and info.manifest_path is not None:
-                manifest_text, manifest_error = _read_manifest_text(info)
-                if manifest_error:
-                    entry["errors"].append(manifest_error)
+def _manifest_text(info) -> tuple[str | None, str | None]:
+    """Read manifest text if present, returning (text, error_message)."""
+    if not (info.exists and info.manifest_path is not None):
+        return None, None
+    manifest_text, manifest_error = _read_manifest_text(info)
+    return manifest_text, manifest_error
 
-            if stream is None:
-                if info.has_files:
-                    entry["actions"].append(f"create_stream {resolution}")
-                    if write:
-                        error = _create_stream(
-                            real_id, resolution, manifest_text, info, stream_fields
-                        )
-                        if error:
-                            entry["errors"].append(error)
-                continue
 
-            if not info.exists:
-                entry["warnings"].append(
-                    f"stale stream {resolution}: manifest missing."
-                )
-                continue
-            if info.is_stub:
-                entry["warnings"].append(f"stale stream {resolution}: manifest stub.")
-                continue
-            if info.ts_count == 0:
-                entry["warnings"].append(
-                    f"stale stream {resolution}: no segments on disk."
-                )
-                continue
+def _create_stream_if_needed(
+    entry: dict[str, Any],
+    real_id: int,
+    resolution: str,
+    info,
+    manifest_text: str | None,
+    stream_fields: Sequence[str],
+    write: bool,
+) -> None:
+    """Create a stream record when files exist but no DB stream is present."""
+    if not info.has_files:
+        return
+    entry["actions"].append(f"create_stream {resolution}")
+    if write:
+        error = _create_stream(real_id, resolution, manifest_text, info, stream_fields)
+        if error:
+            entry["errors"].append(error)
 
-            update_needed = False
-            update_fields: list[str] = []
 
-            if "manifest" in stream_fields and manifest_text is not None:
-                if getattr(stream, "manifest", "") != manifest_text:
-                    update_needed = True
-                    update_fields.append("manifest")
+def _is_stale_stream(entry: dict[str, Any], resolution: str, info) -> bool:
+    """Record stale stream warnings; return True when stream should be skipped."""
+    if not info.exists:
+        entry["warnings"].append(f"stale stream {resolution}: manifest missing.")
+        return True
+    if info.is_stub:
+        entry["warnings"].append(f"stale stream {resolution}: manifest stub.")
+        return True
+    if info.ts_count == 0:
+        entry["warnings"].append(f"stale stream {resolution}: no segments on disk.")
+        return True
+    return False
 
-            if "segments" in stream_fields:
-                current_segments = getattr(stream, "segments", None)
-                if current_segments not in (info.ts_count, None):
-                    update_needed = True
-                    update_fields.append("segments")
 
-            if update_needed:
-                entry["actions"].append(f"update_stream {resolution}")
-                if write and update_fields:
-                    try:
-                        if "manifest" in update_fields and manifest_text is not None:
-                            stream.manifest = manifest_text
-                        if "segments" in update_fields:
-                            stream.segments = info.ts_count
-                        stream.save(update_fields=update_fields)
-                    except Exception as exc:  # pragma: no cover - defensive guard
-                        entry["errors"].append(
-                            f"{resolution}: stream update failed ({exc})"
-                        )
+def _update_stream_if_needed(
+    entry: dict[str, Any],
+    resolution: str,
+    stream,
+    manifest_text: str | None,
+    ts_count: int,
+    stream_fields: Sequence[str],
+    write: bool,
+) -> None:
+    """Update manifest/segment counts on the stream when they differ."""
+    update_needed = False
+    update_fields: list[str] = []
 
-        if rebuild_master and ready_any:
-            if write:
-                if write_master_playlist:
-                    try:
-                        write_master_playlist(real_id)
-                        entry["actions"].append("rebuild_master")
-                    except Exception as exc:  # pragma: no cover - defensive
-                        msg = f"Master rebuild failed: {exc}"
-                        entry["warnings"].append(msg)
-                else:
-                    entry["warnings"].append(
-                        "Master rebuild skipped: helper unavailable."
-                    )
-            else:
+    if "manifest" in stream_fields and manifest_text is not None:
+        if getattr(stream, "manifest", "") != manifest_text:
+            update_needed = True
+            update_fields.append("manifest")
+
+    if "segments" in stream_fields:
+        current_segments = getattr(stream, "segments", None)
+        if current_segments not in (ts_count, None):
+            update_needed = True
+            update_fields.append("segments")
+
+    if not update_needed:
+        return
+
+    entry["actions"].append(f"update_stream {resolution}")
+    if not write or not update_fields:
+        return
+
+    try:
+        if "manifest" in update_fields and manifest_text is not None:
+            stream.manifest = manifest_text
+        if "segments" in update_fields:
+            stream.segments = ts_count
+        stream.save(update_fields=update_fields)
+    except Exception as exc:  # pragma: no cover - defensive guard
+        entry["errors"].append(f"{resolution}: stream update failed ({exc})")
+
+
+def _maybe_rebuild_master_playlist(
+    entry: dict[str, Any],
+    real_id: int,
+    ready_any: bool,
+    *,
+    rebuild_master: bool,
+    write: bool,
+) -> None:
+    """Rebuild the master playlist when requested and at least one stream is ready."""
+    if not (rebuild_master and ready_any):
+        return
+
+    if write:
+        if write_master_playlist:
+            try:
+                write_master_playlist(real_id)
                 entry["actions"].append("rebuild_master")
-                entry["warnings"].append("Master rebuild skipped (dry-run).")
+            except Exception as exc:  # pragma: no cover - defensive
+                msg = f"Master rebuild failed: {exc}"
+                entry["warnings"].append(msg)
+        else:
+            entry["warnings"].append("Master rebuild skipped: helper unavailable.")
+        return
 
-        thumb_path = get_thumbnail_path(real_id)
-        if not thumb_path.exists() and ready_any:
-            if write:
-                try:
-                    generated = ensure_thumbnail(real_id)
-                except Exception as exc:  # pragma: no cover - defensive
-                    entry["warnings"].append(f"Thumbnail generation error: {exc}")
-                else:
-                    if generated is None:
-                        entry["warnings"].append(
-                            "Thumbnail generation did not produce a file."
-                        )
-                    else:
-                        entry["actions"].append("generate_thumb")
-            else:
-                entry["actions"].append("generate_thumb")
-                entry["warnings"].append("Thumbnail generation skipped (dry-run).")
+    entry["actions"].append("rebuild_master")
+    entry["warnings"].append("Master rebuild skipped (dry-run).")
 
-    return {"videos": report, "warnings": discovery_warnings}
+
+def _maybe_generate_thumbnail(
+    entry: dict[str, Any], real_id: int, ready_any: bool, write: bool
+) -> None:
+    """Generate a thumbnail when missing and any stream has files."""
+    thumb_path = get_thumbnail_path(real_id)
+    if thumb_path.exists() or not ready_any:
+        return
+
+    if write:
+        try:
+            generated = ensure_thumbnail(real_id)
+        except Exception as exc:  # pragma: no cover - defensive
+            entry["warnings"].append(f"Thumbnail generation error: {exc}")
+            return
+
+        if generated is None:
+            entry["warnings"].append("Thumbnail generation did not produce a file.")
+        else:
+            entry["actions"].append("generate_thumb")
+        return
+
+    entry["actions"].append("generate_thumb")
+    entry["warnings"].append("Thumbnail generation skipped (dry-run).")
 
 
 def format_heal_hls_index_text(result: dict[str, Any]) -> str:
@@ -494,11 +655,58 @@ def _collect_settings_summary(settings, media_root: Path) -> dict[str, Any]:
 def _collect_videos(
     settings, explicit_public: Sequence[int] | None, resolution_hint: str
 ) -> dict[str, Any]:
+    """Gather videos to diagnose, optionally discovering publics when not provided."""
     failures = 0
     warnings: list[str] = []
     items: list[dict[str, Any]] = []
     resolved: list[tuple[int, int, Video]] = []
 
+    public_ids, discovered, discovery_error = _discover_public_ids(
+        settings, explicit_public, resolution_hint
+    )
+    if discovery_error:
+        failures += 1
+        warnings.append(discovery_error)
+
+    if not public_ids:
+        warnings.append("No public video IDs supplied or discovered.")
+        return {
+            "items": items,
+            "failures": failures,
+            "warnings": warnings,
+            "resolved": resolved,
+        }
+
+    unique_public_ids = _dedupe_public_ids(public_ids)
+    items, real_ids, failures = _resolve_public_ids(unique_public_ids, failures)
+
+    if not real_ids:
+        return {
+            "items": items,
+            "failures": failures,
+            "warnings": warnings,
+            "resolved": resolved,
+        }
+
+    resolved, failures = _attach_video_metadata(items, real_ids, failures)
+
+    if discovered and not resolved:
+        warnings.append(
+            f"Ready-only selector returned {len(public_ids)} videos but none resolved for resolution '{resolution_hint}'."
+        )
+
+    return {
+        "items": items,
+        "failures": failures,
+        "warnings": warnings,
+        "resolved": resolved,
+    }
+
+
+def _discover_public_ids(
+    settings, explicit_public: Sequence[int] | None, resolution_hint: str
+) -> tuple[list[int], bool, str | None]:
+    """Discover or use provided public IDs; return list, discovery flag, and errors."""
     public_ids: list[int] = []
     discovered = False
     discovery_error: str | None = None
@@ -522,19 +730,11 @@ def _collect_videos(
     else:
         public_ids.extend(int(value) for value in explicit_public)
 
-    if discovery_error:
-        failures += 1
-        warnings.append(discovery_error)
+    return public_ids, discovered, discovery_error
 
-    if not public_ids:
-        warnings.append("No public video IDs supplied or discovered.")
-        return {
-            "items": items,
-            "failures": failures,
-            "warnings": warnings,
-            "resolved": resolved,
-        }
 
+def _dedupe_public_ids(public_ids: Sequence[int]) -> list[int]:
+    """Deduplicate public IDs while preserving input order."""
     unique_public_ids: list[int] = []
     seen_public: set[int] = set()
     for value in public_ids:
@@ -542,7 +742,14 @@ def _collect_videos(
             continue
         seen_public.add(value)
         unique_public_ids.append(value)
+    return unique_public_ids
 
+
+def _resolve_public_ids(
+    unique_public_ids: Sequence[int], failures: int
+) -> tuple[list[dict[str, Any]], list[int], int]:
+    """Resolve public IDs to real IDs, tracking failures and entries."""
+    items: list[dict[str, Any]] = []
     real_ids: list[int] = []
     for public_id in unique_public_ids:
         entry: dict[str, Any] = {"public": public_id}
@@ -556,15 +763,14 @@ def _collect_videos(
         real_ids.append(real_id)
         entry["real"] = real_id
         items.append(entry)
+    return items, real_ids, failures
 
-    if not real_ids:
-        return {
-            "items": items,
-            "failures": failures,
-            "warnings": warnings,
-            "resolved": resolved,
-        }
 
+def _attach_video_metadata(
+    items: list[dict[str, Any]], real_ids: list[int], failures: int
+) -> tuple[list[tuple[int, int, Video]], int]:
+    """Attach database metadata for resolved videos."""
+    resolved: list[tuple[int, int, Video]] = []
     videos = Video.objects.in_bulk(real_ids)
     for entry in items:
         real_id = entry.get("real")
@@ -579,18 +785,7 @@ def _collect_videos(
         created_at = getattr(video, "created_at", None)
         entry["created_at"] = created_at.isoformat() if created_at else None
         resolved.append((entry["public"], real_id, video))
-
-    if discovered and not resolved:
-        warnings.append(
-            f"Ready-only selector returned {len(public_ids)} videos but none resolved for resolution '{resolution_hint}'."
-        )
-
-    return {
-        "items": items,
-        "failures": failures,
-        "warnings": warnings,
-        "resolved": resolved,
-    }
+    return resolved, failures
 
 
 def _segment_name_candidates(name: str) -> list[str]:
@@ -617,118 +812,176 @@ def _segment_name_candidates(name: str) -> list[str]:
 def _inspect_filesystem(
     settings, media_root: Path, resolved, resolutions: Sequence[str]
 ) -> dict[str, Any]:
+    """Inspect HLS filesystem structure for each resolved video/resolution pair."""
     entries: list[dict[str, Any]] = []
     failures = 0
     warnings: list[str] = []
 
     for public_id, real_id, _video in resolved:
         for resolution in resolutions or ["480p"]:
-            entry = {
-                "public": public_id,
-                "real": real_id,
-                "resolution": resolution,
-                "manifest": None,
-                "exists": False,
-                "size": None,
-                "is_stub": None,
-                "ts_count": 0,
-                "min_ts_bytes": None,
-                "max_ts_bytes": None,
-                "first_segment": None,
-                "segment_on_disk": None,
-                "segment_zero_on_disk": None,
-                "failure": False,
-            }
+            entry = _init_fs_entry(public_id, real_id, resolution)
             entries.append(entry)
-            try:
-                manifest_path = find_manifest_path(real_id, resolution)
-            except Exception as exc:
-                entry["error"] = f"find_manifest_path failed: {exc}"
-                entry["failure"] = True
-                failures += 1
-                continue
 
-            entry["manifest"] = str(manifest_path)
-
-            if not manifest_path.exists():
-                entry["failure"] = True
-                failures += 1
-                continue
-
-            entry["exists"] = True
-
-            try:
-                entry["size"] = manifest_path.stat().st_size
-            except OSError as exc:
-                entry["error"] = f"Manifest stat failed: {exc}"
-
-            try:
-                stub_flag = is_stub_manifest(manifest_path)
-            except Exception as exc:  # pragma: no cover - defensive guard
-                stub_flag = True
-                entry["error"] = f"Stub detection failed: {exc}"
-            entry["is_stub"] = bool(stub_flag)
-
-            try:
-                manifest_text = manifest_path.read_text(
-                    encoding="utf-8", errors="ignore"
-                )
-            except OSError as exc:
-                entry.setdefault("errors", []).append(f"Manifest read failed: {exc}")
-                manifest_text = ""
-
-            segments = []
-            if manifest_text:
-                for line in manifest_text.splitlines():
-                    token = line.strip()
-                    if not token or token.startswith("#"):
-                        continue
-                    if token.lower().endswith(".ts"):
-                        segments.append(token)
-                if segments:
-                    entry["first_segment"] = segments[0]
-
-            entry["ts_count"] = len(segments)
-
-            available_sizes: list[int] = []
-            zero_segment_name: str | None = None
-            for name in segments:
-                candidates = _segment_name_candidates(name)
-                found_name: str | None = None
-                for candidate in candidates:
-                    candidate_path = Path(manifest_path.parent, candidate).resolve()
-                    if candidate_path.exists():
-                        found_name = candidate
-                        try:
-                            size = candidate_path.stat().st_size
-                        except OSError:
-                            size = None
-                        if size is not None:
-                            available_sizes.append(size)
-                        break
-                if found_name:
-                    if entry["segment_on_disk"] is None:
-                        entry["segment_on_disk"] = found_name
-                    leaf_name = found_name.rsplit("/", 1)[-1]
-                    if leaf_name in ("000.ts", "0000.ts") and zero_segment_name is None:
-                        zero_segment_name = found_name
-            entry["segment_zero_on_disk"] = zero_segment_name
-
-            if available_sizes:
-                entry["min_ts_bytes"] = min(available_sizes)
-                entry["max_ts_bytes"] = max(available_sizes)
-
-            entry["failure"] = (
-                entry["failure"] or entry["ts_count"] == 0 or bool(entry["is_stub"])
+            manifest_path, failures = _resolve_manifest_path(
+                entry, real_id, resolution, failures
             )
-            if entry["failure"]:
-                failures += 1
+            if manifest_path is None:
+                continue
+
+            failures = _populate_manifest_metadata(entry, manifest_path, failures)
+            manifest_text = _read_manifest_text_safe(entry, manifest_path)
+            segments = _extract_segments(manifest_text, entry)
+            available_sizes, zero_segment_name = _collect_segment_files(
+                manifest_path, segments, entry
+            )
+            _apply_segment_statistics(
+                entry, segments, available_sizes, zero_segment_name
+            )
+            failures = _update_failure_status(entry, failures)
 
     return {
         "entries": entries,
         "failures": failures,
         "warnings": warnings,
     }
+
+
+def _init_fs_entry(public_id: int, real_id: int, resolution: str) -> dict[str, Any]:
+    """Initialise the filesystem diagnostics record for a video/resolution."""
+    return {
+        "public": public_id,
+        "real": real_id,
+        "resolution": resolution,
+        "manifest": None,
+        "exists": False,
+        "size": None,
+        "is_stub": None,
+        "ts_count": 0,
+        "min_ts_bytes": None,
+        "max_ts_bytes": None,
+        "first_segment": None,
+        "segment_on_disk": None,
+        "segment_zero_on_disk": None,
+        "failure": False,
+    }
+
+
+def _resolve_manifest_path(
+    entry: dict[str, Any], real_id: int, resolution: str, failures: int
+) -> tuple[Path | None, int]:
+    """Resolve the manifest path for a video; mark failures on error."""
+    try:
+        manifest_path = find_manifest_path(real_id, resolution)
+    except Exception as exc:
+        entry["error"] = f"find_manifest_path failed: {exc}"
+        entry["failure"] = True
+        return None, failures + 1
+
+    entry["manifest"] = str(manifest_path)
+
+    if not manifest_path.exists():
+        entry["failure"] = True
+        return None, failures + 1
+
+    entry["exists"] = True
+    return manifest_path, failures
+
+
+def _populate_manifest_metadata(
+    entry: dict[str, Any], manifest_path: Path, failures: int
+) -> int:
+    """Fill in manifest size and stub status, tracking failures."""
+    try:
+        entry["size"] = manifest_path.stat().st_size
+    except OSError as exc:
+        entry["error"] = f"Manifest stat failed: {exc}"
+
+    try:
+        stub_flag = is_stub_manifest(manifest_path)
+    except Exception as exc:  # pragma: no cover - defensive guard
+        stub_flag = True
+        entry["error"] = f"Stub detection failed: {exc}"
+    entry["is_stub"] = bool(stub_flag)
+    return failures
+
+
+def _read_manifest_text_safe(entry: dict[str, Any], manifest_path: Path) -> str:
+    """Read manifest text defensively, recording errors when they occur."""
+    try:
+        return manifest_path.read_text(encoding="utf-8", errors="ignore")
+    except OSError as exc:
+        entry.setdefault("errors", []).append(f"Manifest read failed: {exc}")
+        return ""
+
+
+def _extract_segments(manifest_text: str, entry: dict[str, Any]) -> list[str]:
+    """Extract TS segment names from the manifest text."""
+    segments: list[str] = []
+    if manifest_text:
+        for line in manifest_text.splitlines():
+            token = line.strip()
+            if not token or token.startswith("#"):
+                continue
+            if token.lower().endswith(".ts"):
+                segments.append(token)
+        if segments:
+            entry["first_segment"] = segments[0]
+    entry["ts_count"] = len(segments)
+    return segments
+
+
+def _collect_segment_files(
+    manifest_path: Path, segments: Sequence[str], entry: dict[str, Any]
+) -> tuple[list[int], str | None]:
+    """Inspect referenced segments on disk to gather size statistics."""
+    available_sizes: list[int] = []
+    zero_segment_name: str | None = None
+
+    for name in segments:
+        candidates = _segment_name_candidates(name)
+        found_name: str | None = None
+        for candidate in candidates:
+            candidate_path = Path(manifest_path.parent, candidate).resolve()
+            if candidate_path.exists():
+                found_name = candidate
+                try:
+                    size = candidate_path.stat().st_size
+                except OSError:
+                    size = None
+                if size is not None:
+                    available_sizes.append(size)
+                break
+        if found_name:
+            if entry["segment_on_disk"] is None:
+                entry["segment_on_disk"] = found_name
+            leaf_name = found_name.rsplit("/", 1)[-1]
+            if leaf_name in ("000.ts", "0000.ts") and zero_segment_name is None:
+                zero_segment_name = found_name
+
+    return available_sizes, zero_segment_name
+
+
+def _apply_segment_statistics(
+    entry: dict[str, Any],
+    segments: Sequence[str],
+    available_sizes: Sequence[int],
+    zero_segment_name: str | None,
+) -> None:
+    """Persist segment statistics (counts and min/max sizes) on the entry."""
+    entry["segment_zero_on_disk"] = zero_segment_name
+    if available_sizes:
+        entry["min_ts_bytes"] = min(available_sizes)
+        entry["max_ts_bytes"] = max(available_sizes)
+
+
+def _update_failure_status(entry: dict[str, Any], failures: int) -> int:
+    """Update failure flags and counter based on entry state."""
+    entry["failure"] = (
+        entry["failure"] or entry["ts_count"] == 0 or bool(entry["is_stub"])
+    )
+    if entry["failure"]:
+        failures += 1
+    return failures
 
 
 def _check_routing(resolved, resolutions: Sequence[str]) -> dict[str, Any]:
@@ -778,6 +1031,7 @@ def _resolve_path(path: str, expected_view) -> dict[str, Any]:
 def _invoke_views(
     fs_entries: Sequence[dict[str, Any]],
 ) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
+    """Invoke manifest and segment views to validate responses and headers."""
     if not fs_entries:
         view_info = {
             "failures": 0,
@@ -785,24 +1039,7 @@ def _invoke_views(
         }
         return view_info, {}, []
 
-    sample: _ViewSample | None = None
-    for entry in fs_entries:
-        if not entry.get("exists"):
-            continue
-        if entry.get("failure"):
-            continue
-        segment_name = entry.get("segment_zero_on_disk") or entry.get("segment_on_disk")
-        if not segment_name:
-            continue
-        sample = _ViewSample(
-            public_id=entry["public"],
-            real_id=entry["real"],
-            resolution=entry["resolution"],
-            manifest_path=entry.get("manifest") or "",
-            segment_name=segment_name,
-        )
-        break
-
+    sample = _select_view_sample(fs_entries)
     if sample is None:
         view_info = {
             "failures": 0,
@@ -827,108 +1064,56 @@ def _invoke_views(
     factory = APIRequestFactory()
     auth_user = _DiagnosticsUser()
 
-    manifest_request = factory.get(
-        f"/api/video/{sample.public_id}/{sample.resolution}/index.m3u8"
+    (
+        manifest_result,
+        manifest_record,
+        manifest_warnings,
+        manifest_header_warnings,
+        manifest_failures,
+    ) = _exercise_view(
+        factory=factory,
+        auth_user=auth_user,
+        path=f"/api/video/{sample.public_id}/{sample.resolution}/index.m3u8",
+        view_class=VideoManifestView,
+        view_kwargs={
+            "movie_id": sample.public_id,
+            "resolution": sample.resolution,
+        },
+        kind="manifest",
+        expected_tokens=("mpegurl",),
     )
-    force_authenticate(manifest_request, user=auth_user)
-    manifest_response = None
-    manifest_status: int | None = None
-    manifest_error: Exception | None = None
-    try:
-        manifest_response = VideoManifestView.as_view()(
-            manifest_request,
-            movie_id=sample.public_id,
-            resolution=sample.resolution,
-        )
-        manifest_status = getattr(manifest_response, "status_code", None)
-    except Exception as exc:  # pragma: no cover - defensive guard
-        manifest_error = exc
+    results["manifest"] = manifest_result
+    failures += manifest_failures
+    warnings.extend(manifest_warnings)
+    if manifest_record is not None:
+        header_report["manifest"] = manifest_record
+    header_warnings.extend(manifest_header_warnings)
 
-    if manifest_error is not None:
-        results["manifest"] = {
-            "ok": False,
-            "error": f"View raised exception: {manifest_error}",
-        }
-        failures += 1
-        record = _baseline_header_record()
-        record["ok"] = False
-        note = f"Manifest view raised exception: {manifest_error}"
-        record["notes"].append(note)
-        header_report["manifest"] = record
-        header_warnings.append(note)
-    else:
-        manifest_ok = manifest_status == 200
-        if not manifest_ok:
-            failures += 1
-            warnings.append(f"Manifest view returned status {manifest_status}.")
-        results["manifest"] = {"ok": manifest_ok, "status": manifest_status}
-        if manifest_response is not None:
-            record, record_warnings = _evaluate_headers(
-                manifest_response,
-                kind="manifest",
-                expected_tokens=("mpegurl",),
-                status_code=manifest_status,
-            )
-            header_report["manifest"] = record
-            header_warnings.extend(record_warnings)
-
-    if manifest_response is not None and hasattr(manifest_response, "close"):
-        try:
-            manifest_response.close()
-        except Exception:
-            pass
-
-    segment_request = factory.get(
-        f"/api/video/{sample.public_id}/{sample.resolution}/{sample.segment_name}"
+    (
+        segment_result,
+        segment_record,
+        segment_warnings,
+        segment_header_warnings,
+        segment_failures,
+    ) = _exercise_view(
+        factory=factory,
+        auth_user=auth_user,
+        path=f"/api/video/{sample.public_id}/{sample.resolution}/{sample.segment_name}",
+        view_class=VideoSegmentContentView,
+        view_kwargs={
+            "movie_id": sample.public_id,
+            "resolution": sample.resolution,
+            "segment": sample.segment_name,
+        },
+        kind="segment",
+        expected_tokens=("video/vnd.dlna.mpeg-tts", "mpeg-tts"),
     )
-    force_authenticate(segment_request, user=auth_user)
-    segment_response = None
-    segment_status: int | None = None
-    segment_error: Exception | None = None
-    try:
-        segment_response = VideoSegmentContentView.as_view()(
-            segment_request,
-            movie_id=sample.public_id,
-            resolution=sample.resolution,
-            segment=sample.segment_name,
-        )
-        segment_status = getattr(segment_response, "status_code", None)
-    except Exception as exc:  # pragma: no cover - defensive guard
-        segment_error = exc
-
-    if segment_error is not None:
-        results["segment"] = {
-            "ok": False,
-            "error": f"View raised exception: {segment_error}",
-        }
-        failures += 1
-        record = _baseline_header_record()
-        record["ok"] = False
-        note = f"Segment view raised exception: {segment_error}"
-        record["notes"].append(note)
-        header_report["segment"] = record
-        header_warnings.append(note)
-    else:
-        segment_ok = segment_status == 200
-        if not segment_ok:
-            failures += 1
-            warnings.append(f"Segment view returned status {segment_status}.")
-        results["segment"] = {"ok": segment_ok, "status": segment_status}
-        if segment_response is not None:
-            record, record_warnings = _evaluate_headers(
-                segment_response,
-                kind="segment",
-                expected_tokens=("video/vnd.dlna.mpeg-tts", "mpeg-tts"),
-                status_code=segment_status,
-            )
-            header_report["segment"] = record
-            header_warnings.extend(record_warnings)
-
-    if segment_response is not None and hasattr(segment_response, "close"):
-        try:
-            segment_response.close()
-        except Exception:
-            pass
+    results["segment"] = segment_result
+    failures += segment_failures
+    warnings.extend(segment_warnings)
+    if segment_record is not None:
+        header_report["segment"] = segment_record
+    header_warnings.extend(segment_header_warnings)
 
     cors_info, cors_warnings = _maybe_check_cors_options(sample, factory)
     if cors_info:
@@ -939,6 +1124,117 @@ def _invoke_views(
     if warnings:
         results["warnings"] = warnings
     return results, header_report, header_warnings
+
+
+def _select_view_sample(
+    fs_entries: Sequence[dict[str, Any]],
+) -> _ViewSample | None:
+    """Pick a ready sample entry (manifest + segment) for invoking views."""
+    for entry in fs_entries:
+        if not entry.get("exists") or entry.get("failure"):
+            continue
+        segment_name = entry.get("segment_zero_on_disk") or entry.get("segment_on_disk")
+        if not segment_name:
+            continue
+        return _ViewSample(
+            public_id=entry["public"],
+            real_id=entry["real"],
+            resolution=entry["resolution"],
+            manifest_path=entry.get("manifest") or "",
+            segment_name=segment_name,
+        )
+    return None
+
+
+def _exercise_view(
+    *,
+    factory,
+    auth_user,
+    path: str,
+    view_class,
+    view_kwargs: dict[str, Any],
+    kind: str,
+    expected_tokens: Sequence[str],
+) -> tuple[dict[str, Any], dict[str, Any] | None, list[str], list[str], int]:
+    """Execute a view, evaluate headers, and return results plus warnings."""
+    request = factory.get(path)
+    force_authenticate(request, user=auth_user)
+
+    response, status_code, error = _execute_view(view_class, request, view_kwargs)
+    result, record, warnings, header_warnings, failures = _compile_view_result(
+        kind=kind,
+        response=response,
+        status_code=status_code,
+        error=error,
+        expected_tokens=expected_tokens,
+    )
+    _close_response(response)
+    return result, record, warnings, header_warnings, failures
+
+
+def _execute_view(view_class, request, view_kwargs: dict[str, Any]):
+    """Call a DRF view and return (response, status_code, error)."""
+    response = None
+    status_code: int | None = None
+    error: Exception | None = None
+    try:
+        response = view_class.as_view()(request, **view_kwargs)
+        status_code = getattr(response, "status_code", None)
+    except Exception as exc:  # pragma: no cover - defensive guard
+        error = exc
+    return response, status_code, error
+
+
+def _compile_view_result(
+    *,
+    kind: str,
+    response,
+    status_code: int | None,
+    error: Exception | None,
+    expected_tokens: Sequence[str],
+) -> tuple[dict[str, Any], dict[str, Any] | None, list[str], list[str], int]:
+    """Build the result and header diagnostics for a view call."""
+    record: dict[str, Any] | None = None
+    warnings: list[str] = []
+    header_warnings: list[str] = []
+    failures = 0
+    label = kind.capitalize()
+
+    if error is not None:
+        result = {"ok": False, "error": f"View raised exception: {error}"}
+        failures += 1
+        record = _baseline_header_record()
+        record["ok"] = False
+        note = f"{label} view raised exception: {error}"
+        record["notes"].append(note)
+        header_warnings.append(note)
+        return result, record, warnings, header_warnings, failures
+
+    ok = status_code == 200
+    result = {"ok": ok, "status": status_code}
+    if not ok:
+        failures += 1
+        warnings.append(f"{label} view returned status {status_code}.")
+
+    if response is not None:
+        record, record_warnings = _evaluate_headers(
+            response,
+            kind=kind,
+            expected_tokens=expected_tokens,
+            status_code=status_code,
+        )
+        header_warnings.extend(record_warnings)
+
+    return result, record, warnings, header_warnings, failures
+
+
+def _close_response(response) -> None:
+    """Close streaming/file responses defensively."""
+    if response is not None and hasattr(response, "close"):
+        try:
+            response.close()
+        except Exception:
+            pass
 
 
 def _baseline_header_record() -> dict[str, Any]:
@@ -973,6 +1269,7 @@ def _evaluate_headers(
     expected_tokens: Sequence[str],
     status_code: int | None,
 ) -> tuple[dict[str, Any], list[str]]:
+    """Evaluate headers for a response and collect warnings."""
     record = _baseline_header_record()
     warnings: list[str] = []
     label = kind.capitalize()
@@ -989,41 +1286,66 @@ def _evaluate_headers(
 
     ctype = _response_header(response, "Content-Type")
     record["ctype"] = ctype
-    if not ctype:
-        add_note(f"{label}: Content-Type header missing.")
-    else:
-        lower_ctype = ctype.lower()
-        if not any(token in lower_ctype for token in expected_tokens):
-            expected = ", ".join(expected_tokens)
-            add_note(
-                f"{label}: Content-Type '{ctype}' lacks expected token(s): {expected}."
-            )
+    _check_content_type(ctype, expected_tokens, label, add_note)
 
     disposition = _response_header(response, "Content-Disposition")
     record["content_disposition"] = disposition
-    disposition_ok = bool(disposition and "inline;" in disposition.lower())
-    record["disposition_inline"] = disposition_ok
-    if not disposition:
-        add_note(f"{label}: Content-Disposition header missing.")
-    elif not disposition_ok:
-        add_note(f"{label}: Content-Disposition '{disposition}' missing 'inline;'.")
+    record["disposition_inline"] = bool(
+        disposition and "inline;" in disposition.lower()
+    )
+    _check_disposition(disposition, label, add_note)
 
     cache_control = _response_header(response, "Cache-Control")
     record["cache_control"] = cache_control
-    if not cache_control:
-        add_note(f"{label}: Cache-Control header missing.")
-    else:
-        from django.conf import settings as global_settings
-
-        if not getattr(global_settings, "DEBUG", False):
-            lower_cache = cache_control.lower()
-            if not any(flag in lower_cache for flag in ("public", "no-cache")):
-                add_note(
-                    f"{label}: Cache-Control '{cache_control}' missing recommended directives (public or no-cache).",
-                    mark_not_ok=False,
-                )
+    _check_cache_control(cache_control, label, add_note)
 
     return record, warnings
+
+
+def _check_content_type(
+    ctype: str | None,
+    expected_tokens: Sequence[str],
+    label: str,
+    add_note,
+) -> None:
+    """Validate Content-Type header tokens."""
+    if not ctype:
+        add_note(f"{label}: Content-Type header missing.")
+        return
+    lower_ctype = ctype.lower()
+    if not any(token in lower_ctype for token in expected_tokens):
+        expected = ", ".join(expected_tokens)
+        add_note(
+            f"{label}: Content-Type '{ctype}' lacks expected token(s): {expected}."
+        )
+
+
+def _check_disposition(disposition: str | None, label: str, add_note) -> None:
+    """Validate Content-Disposition header presence and inline directive."""
+    if not disposition:
+        add_note(f"{label}: Content-Disposition header missing.")
+        return
+    if "inline;" not in disposition.lower():
+        add_note(f"{label}: Content-Disposition '{disposition}' missing 'inline;'.")
+
+
+def _check_cache_control(cache_control: str | None, label: str, add_note) -> None:
+    """Validate cache-control directives when not running in DEBUG."""
+    if not cache_control:
+        add_note(f"{label}: Cache-Control header missing.")
+        return
+
+    from django.conf import settings as global_settings
+
+    if getattr(global_settings, "DEBUG", False):
+        return
+
+    lower_cache = cache_control.lower()
+    if not any(flag in lower_cache for flag in ("public", "no-cache")):
+        add_note(
+            f"{label}: Cache-Control '{cache_control}' missing recommended directives (public or no-cache).",
+            mark_not_ok=False,
+        )
 
 
 def _maybe_check_cors_options(

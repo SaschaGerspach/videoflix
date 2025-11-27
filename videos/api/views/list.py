@@ -40,15 +40,9 @@ class VideoListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        try:
-            data = request.data
-        except ParseError as exc:
-            detail = getattr(exc, "detail", str(exc))
-            message = f"Invalid JSON: {detail}"
-            return Response(
-                {"errors": {"non_field_errors": [str(message)]}},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        parse_response, data = self._parse_request_data(request)
+        if parse_response is not None:
+            return parse_response
 
         serializer = VideoListRequestSerializer(data=data)
         if not serializer.is_valid():
@@ -56,11 +50,7 @@ class VideoListView(APIView):
                 {"errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST
             )
 
-        ready_param = request.query_params.get("ready_only")
-        ready_only = True
-        if ready_param is not None:
-            ready_only = ready_param not in {"0", "false", "False"}
-
+        ready_only = self._resolve_ready_only(request.query_params.get("ready_only"))
         order_param = request.query_params.get("order")
         ordering = self._resolve_ordering(order_param)
 
@@ -70,6 +60,28 @@ class VideoListView(APIView):
             ordering=ordering,
         )
         return Response(payload, status=status.HTTP_200_OK)
+
+    def _parse_request_data(self, request):
+        """Extract request data while mirroring existing ParseError handling."""
+        try:
+            return None, request.data
+        except ParseError as exc:
+            detail = getattr(exc, "detail", str(exc))
+            message = f"Invalid JSON: {detail}"
+            return (
+                Response(
+                    {"errors": {"non_field_errors": [str(message)]}},
+                    status=status.HTTP_400_BAD_REQUEST,
+                ),
+                None,
+            )
+
+    @staticmethod
+    def _resolve_ready_only(raw: str | None) -> bool:
+        """Resolve ready_only flag from query params (defaults to True)."""
+        if raw is None:
+            return True
+        return raw not in {"0", "false", "False"}
 
     @staticmethod
     def _resolve_ordering(raw: str | None) -> list[str] | None:

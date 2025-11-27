@@ -59,19 +59,17 @@ from .common import ERROR_RESPONSE_REF, _format_validation_error, logger
     ],
 )
 class VideoTranscodeView(APIView):
+    """Handle manual transcode requests for a given public video ID."""
+
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "transcode"
     permission_classes = [IsAuthenticated]
     http_method_names = ["post", "options"]
 
     def post(self, request, video_id: int):
-        try:
-            real_id = resolve_public_id(video_id)
-        except Video.DoesNotExist:
-            return Response(
-                {"errors": {"non_field_errors": ["Video not found."]}},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+        real_id_response, real_id = self._resolve_public_video_id(video_id)
+        if real_id_response is not None:
+            return real_id_response
         video_id = real_id
 
         logger.info(
@@ -80,80 +78,148 @@ class VideoTranscodeView(APIView):
             getattr(settings, "IS_TEST_ENV", None),
         )
 
+        payload_response, payload = self._parse_payload(request)
+        if payload_response is not None:
+            return payload_response
+
+        target_resolutions_response, target_resolutions = (
+            self._parse_target_resolutions(request, payload)
+        )
+        if target_resolutions_response is not None:
+            return target_resolutions_response
+
+        video_response, video = self._get_video_or_404(video_id)
+        if video_response is not None:
+            return video_response
+
+        permission_response = self._check_permissions(request.user, video)
+        if permission_response is not None:
+            return permission_response
+
+        lock_response = self._check_transcode_lock(video.id)
+        if lock_response is not None:
+            return lock_response
+
+        if "PYTEST_CURRENT_TEST" in os.environ:
+            settings.IS_TEST_ENV = True
+
+        enqueue_response = self._enqueue_transcode(video, target_resolutions)
+        if enqueue_response is not None:
+            return enqueue_response
+
+        return Response(
+            {"detail": "Transcode accepted", "video_id": video_id},
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+    def _resolve_public_video_id(self, video_id: int):
+        """Resolve public video id to real id, returning Response on failure."""
         try:
-            payload = request.data or {}
-        except ParseError as exc:
-            return Response(
-                {"errors": {"non_field_errors": [str(exc)]}},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        query_res = request.query_params.get("res")
-        target_resolutions: list[str]
-
-        if query_res is not None:
-            requested = [item.strip() for item in query_res.split(",") if item.strip()]
-            if not requested:
-                target_resolutions = list(ALLOWED_TRANSCODE_PROFILES.keys())
-            else:
-                invalid = next(
-                    (
-                        item
-                        for item in requested
-                        if item not in ALLOWED_TRANSCODE_PROFILES
-                    ),
-                    None,
-                )
-                if invalid:
-                    return Response(
-                        {"errors": {"res": [f"Unsupported resolution '{invalid}'"]}},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
-                target_resolutions = requested
-        else:
-            serializer = VideoTranscodeRequestSerializer(data=payload)
-            if not serializer.is_valid():
-                return Response(
-                    {"errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST
-                )
-            target_resolutions = serializer.validated_data["resolutions"]
-
-        try:
-            video = Video.objects.get(pk=video_id)
+            real_id = resolve_public_id(video_id)
         except Video.DoesNotExist:
-            return Response(
-                {"errors": {"non_field_errors": ["Video not found."]}},
-                status=status.HTTP_404_NOT_FOUND,
+            return (
+                Response(
+                    {"errors": {"non_field_errors": ["Video not found."]}},
+                    status=status.HTTP_404_NOT_FOUND,
+                ),
+                None,
+            )
+        return None, real_id
+
+    def _parse_payload(self, request):
+        """Parse incoming request payload defensively."""
+        try:
+            return None, request.data or {}
+        except ParseError as exc:
+            return (
+                Response(
+                    {"errors": {"non_field_errors": [str(exc)]}},
+                    status=status.HTTP_400_BAD_REQUEST,
+                ),
+                None,
             )
 
-        user = request.user
+    def _parse_target_resolutions(self, request, payload):
+        """Resolve requested resolutions from query or JSON body."""
+        query_res = request.query_params.get("res")
+        if query_res is not None:
+            return self._parse_query_resolutions(query_res)
+
+        serializer = VideoTranscodeRequestSerializer(data=payload)
+        if not serializer.is_valid():
+            return (
+                Response(
+                    {"errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST
+                ),
+                None,
+            )
+        return None, serializer.validated_data["resolutions"]
+
+    def _parse_query_resolutions(self, query_res: str):
+        """Parse resolutions from ?res= query string."""
+        requested = [item.strip() for item in query_res.split(",") if item.strip()]
+        if not requested:
+            return None, list(ALLOWED_TRANSCODE_PROFILES.keys())
+
+        invalid = next(
+            (item for item in requested if item not in ALLOWED_TRANSCODE_PROFILES),
+            None,
+        )
+        if invalid:
+            return (
+                Response(
+                    {"errors": {"res": [f"Unsupported resolution '{invalid}'"]}},
+                    status=status.HTTP_400_BAD_REQUEST,
+                ),
+                None,
+            )
+        return None, requested
+
+    def _get_video_or_404(self, video_id: int):
+        """Fetch the video or return a 404 Response."""
+        try:
+            return None, Video.objects.get(pk=video_id)
+        except Video.DoesNotExist:
+            return (
+                Response(
+                    {"errors": {"non_field_errors": ["Video not found."]}},
+                    status=status.HTTP_404_NOT_FOUND,
+                ),
+                None,
+            )
+
+    def _check_permissions(self, user, video):
+        """Ensure the requester can modify the video, returning Response on failure."""
         is_owner = video.owner_id is not None and video.owner_id == getattr(
             user, "id", None
         )
         is_admin = getattr(user, "is_staff", False) or getattr(
             user, "is_superuser", False
         )
-        if not (is_owner or is_admin):
-            return Response(
-                {
-                    "errors": {
-                        "non_field_errors": [
-                            "You do not have permission to modify this video."
-                        ]
-                    }
-                },
-                status=status.HTTP_403_FORBIDDEN,
-            )
+        if is_owner or is_admin:
+            return None
+        return Response(
+            {
+                "errors": {
+                    "non_field_errors": [
+                        "You do not have permission to modify this video."
+                    ]
+                }
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )
 
-        if is_transcode_locked(video.id):
-            return Response(
-                {"errors": {"non_field_errors": ["Transcode already in progress."]}},
-                status=status.HTTP_409_CONFLICT,
-            )
+    def _check_transcode_lock(self, video_id: int):
+        """Return a conflict Response if a transcode is already in progress."""
+        if not is_transcode_locked(video_id):
+            return None
+        return Response(
+            {"errors": {"non_field_errors": ["Transcode already in progress."]}},
+            status=status.HTTP_409_CONFLICT,
+        )
 
-        if "PYTEST_CURRENT_TEST" in os.environ:
-            settings.IS_TEST_ENV = True
-
+    def _enqueue_transcode(self, video, target_resolutions: list[str]):
+        """Enqueue the transcode job and log acceptance details."""
         try:
             enqueue_result = transcode_services.enqueue_transcode(
                 video.id,
@@ -173,15 +239,11 @@ class VideoTranscodeView(APIView):
         if isinstance(enqueue_result, dict) and enqueue_result.get("job_id"):
             logger.info(
                 "Transcode job accepted: video_id=%s, job_id=%s, queue=%s",
-                video_id,
+                video.id,
                 enqueue_result.get("job_id"),
                 enqueue_result.get("queue"),
             )
-
-        return Response(
-            {"detail": "Transcode accepted", "video_id": video_id},
-            status=status.HTTP_202_ACCEPTED,
-        )
+        return None
 
     def handle_exception(self, exc):
         if isinstance(exc, NotAuthenticated):

@@ -49,20 +49,13 @@ class VideoUploadView(APIView):
     http_method_names = ["post", "options"]
 
     def post(self, request, video_id: int):
-        try:
-            _ = request.data
-        except ParseError as exc:
-            return Response(
-                {"errors": {"non_field_errors": [str(exc)]}},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        parse_response = self._ensure_parsed_request(request)
+        if parse_response is not None:
+            return parse_response
 
-        upload_candidate = request.FILES.get("file")
-        if upload_candidate is None:
-            return Response(
-                {"errors": {"file": ["No video file provided."]}},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        upload_candidate, error_response = self._extract_upload_file(request)
+        if error_response is not None:
+            return error_response
 
         serializer = VideoUploadSerializer(data={"file": upload_candidate})
         if not serializer.is_valid():
@@ -70,65 +63,24 @@ class VideoUploadView(APIView):
                 {"errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST
             )
 
-        user = request.user
+        video_response, video = self._get_video_or_404(video_id)
+        if video_response is not None:
+            return video_response
 
-        try:
-            video = Video.objects.get(pk=video_id)
-        except Video.DoesNotExist:
-            return Response(
-                {"errors": {"non_field_errors": ["Video not found."]}},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        is_owner = video.owner_id is not None and video.owner_id == getattr(
-            user, "id", None
-        )
-        is_admin = getattr(user, "is_staff", False) or getattr(
-            user, "is_superuser", False
-        )
-        if not (is_owner or is_admin):
-            return Response(
-                {
-                    "errors": {
-                        "non_field_errors": [
-                            "You do not have permission to modify this video."
-                        ]
-                    }
-                },
-                status=status.HTTP_403_FORBIDDEN,
-            )
+        permission_response = self._check_permissions(request.user, video)
+        if permission_response is not None:
+            return permission_response
 
         file_obj = serializer.validated_data["file"]
-        max_bytes = getattr(settings, "VIDEO_UPLOAD_MAX_BYTES", 2 * 1024 * 1024 * 1024)
-        file_size = getattr(file_obj, "size", None)
-        if file_size is not None and file_size > max_bytes:
-            return Response(
-                {
-                    "errors": {
-                        "file": [f"File too large. Max size is {max_bytes} bytes."]
-                    }
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        size_response = self._validate_file_size(file_obj)
+        if size_response is not None:
+            return size_response
 
         target_path = transcode_services.get_video_source_path(video_id)
-        target_path.parent.mkdir(parents=True, exist_ok=True)
-        with target_path.open("wb") as destination:
-            for chunk in file_obj.chunks():
-                destination.write(chunk)
+        self._store_upload(file_obj, target_path, video_id)
 
-        logger.info("Video source stored: video_id=%s, path=%s", video_id, target_path)
-
-        missing_resolutions = [
-            resolution
-            for resolution in transcode_services.ALLOWED_TRANSCODE_PROFILES
-            if not transcode_services.manifest_exists_for_resolution(
-                video_id, resolution
-            )
-        ]
-
+        missing_resolutions = self._collect_missing_resolutions(video_id)
         if not missing_resolutions:
-            logger.info("Upload processed, no transcode needed: video_id=%s", video_id)
             return Response(
                 {"detail": "Upload ok", "video_id": video_id},
                 status=status.HTTP_201_CREATED,
@@ -145,6 +97,116 @@ class VideoUploadView(APIView):
                 status=status.HTTP_201_CREATED,
             )
 
+        enqueue_response = self._enqueue_transcode(video_id, missing_resolutions)
+        if enqueue_response is not None:
+            return enqueue_response
+
+        logger.info(
+            "Upload auto-transcode queued: video_id=%s, resolutions=%s",
+            video_id,
+            missing_resolutions,
+        )
+        return Response(
+            {"detail": "Upload ok", "video_id": video_id},
+            status=status.HTTP_201_CREATED,
+        )
+
+    def _ensure_parsed_request(self, request):
+        """Force DRF to parse the request data, returning a Response on error."""
+        try:
+            _ = request.data
+        except ParseError as exc:
+            return Response(
+                {"errors": {"non_field_errors": [str(exc)]}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return None
+
+    def _extract_upload_file(self, request):
+        """Return uploaded file object or an error Response if missing."""
+        upload_candidate = request.FILES.get("file")
+        if upload_candidate is None:
+            return (
+                None,
+                Response(
+                    {"errors": {"file": ["No video file provided."]}},
+                    status=status.HTTP_400_BAD_REQUEST,
+                ),
+            )
+        return upload_candidate, None
+
+    def _get_video_or_404(self, video_id: int):
+        """Fetch the video or return a 404 Response."""
+        try:
+            return None, Video.objects.get(pk=video_id)
+        except Video.DoesNotExist:
+            return (
+                Response(
+                    {"errors": {"non_field_errors": ["Video not found."]}},
+                    status=status.HTTP_404_NOT_FOUND,
+                ),
+                None,
+            )
+
+    def _check_permissions(self, user, video):
+        """Ensure the requester can modify the video, returning Response on failure."""
+        is_owner = video.owner_id is not None and video.owner_id == getattr(
+            user, "id", None
+        )
+        is_admin = getattr(user, "is_staff", False) or getattr(
+            user, "is_superuser", False
+        )
+        if is_owner or is_admin:
+            return None
+        return Response(
+            {
+                "errors": {
+                    "non_field_errors": [
+                        "You do not have permission to modify this video."
+                    ]
+                }
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    def _validate_file_size(self, file_obj):
+        """Check file size against configured maximum, returning Response on failure."""
+        max_bytes = getattr(settings, "VIDEO_UPLOAD_MAX_BYTES", 2 * 1024 * 1024 * 1024)
+        file_size = getattr(file_obj, "size", None)
+        if file_size is not None and file_size > max_bytes:
+            return Response(
+                {
+                    "errors": {
+                        "file": [f"File too large. Max size is {max_bytes} bytes."]
+                    }
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return None
+
+    def _store_upload(self, file_obj, target_path, video_id: int) -> None:
+        """Persist the uploaded file to the target path, logging the outcome."""
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        with target_path.open("wb") as destination:
+            for chunk in file_obj.chunks():
+                destination.write(chunk)
+        logger.info("Video source stored: video_id=%s, path=%s", video_id, target_path)
+
+    def _collect_missing_resolutions(self, video_id: int) -> list[str]:
+        """Return a list of missing renditions that require transcode."""
+        return [
+            resolution
+            for resolution in transcode_services.ALLOWED_TRANSCODE_PROFILES
+            if not transcode_services.manifest_exists_for_resolution(
+                video_id, resolution
+            )
+        ]
+
+    def _enqueue_transcode(
+        self, video_id: int, missing_resolutions: list[str]
+    ) -> Response | None:
+        """Enqueue transcode jobs for missing resolutions, returning Response on error."""
         try:
             transcode_services.enqueue_transcode(
                 video_id,
@@ -160,16 +222,7 @@ class VideoUploadView(APIView):
                 {"errors": _format_validation_error(exc)},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-
-        logger.info(
-            "Upload auto-transcode queued: video_id=%s, resolutions=%s",
-            video_id,
-            missing_resolutions,
-        )
-        return Response(
-            {"detail": "Upload ok", "video_id": video_id},
-            status=status.HTTP_201_CREATED,
-        )
+        return None
 
     def handle_exception(self, exc):
         if isinstance(exc, NotAuthenticated):
