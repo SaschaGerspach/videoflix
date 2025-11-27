@@ -59,7 +59,15 @@ For local development the project uses a `.env` file in the repo root. An `.env.
 cp .env.example .env
 ```
 
-The example file is configured for a production/staging environment (`ENV=prod`, `DEBUG=False`). For local work you can switch to `ENV=dev` (or `DEBUG=True`) and set `EMAIL_BACKEND=console` or `ENV=console`.
+ENV can be: `prod` | `dev` | `console`
+
+- `prod` → production-like mode (`DEBUG=False`); use this together with `EMAIL_BACKEND=smtp` if you want real emails to be sent.
+- `dev` → local development; typically used with `DEBUG=True`.
+- `console` → convenience mode; activation/reset links are printed to the logs instead of being sent via SMTP.
+
+Important:
+If `DEBUG=True` **or** `ENV=console` is used, the email backend is forced to the console backend and **no real emails are sent**, regardless of the SMTP settings.
+Use `ENV=prod` and `DEBUG=False` (and `EMAIL_BACKEND=smtp`) if you want real outgoing emails.
 
 Fill the values you need:
 
@@ -70,7 +78,7 @@ Fill the values you need:
 
 **Important**
 `SECRET_KEY` must not be empty.
- If this value is missing, the web container will fail to start.
+If this value is missing, the web container will fail to start.
 
 Note: if you do not configure SMTP, activation and password reset still return valid responses; emails are caught silently for local development.
 
