@@ -137,6 +137,13 @@ def test_login_user_success(active_user):
     )
 
 
+def test_login_user_updates_last_login(active_user):
+    assert active_user.last_login is None
+    user, _ = services.login_user(email=active_user.email, password="secret123")
+    user.refresh_from_db()
+    assert user.last_login is not None
+
+
 def test_login_user_rejects_inactive(inactive_user):
     with pytest.raises(services.AuthenticationError) as exc:
         services.login_user(email=inactive_user.email, password="secret123")

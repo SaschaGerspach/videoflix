@@ -6,7 +6,7 @@ from typing import Any
 import jwt
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
-from django.contrib.auth.models import AbstractBaseUser
+from django.contrib.auth.models import AbstractBaseUser, update_last_login
 from django.contrib.auth.tokens import default_token_generator
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
@@ -42,30 +42,8 @@ def send_activation_email(
     When ``fail_silently`` is True the token is returned together with a boolean
     flag indicating if the email was delivered instead of raising on failures.
     """
-    token = default_token_generator.make_token(user)
-    uidb64 = urlsafe_base64_encode(force_bytes(user.pk))
-    action_url = build_frontend_url("activate", uidb64=uidb64, token=token)
-    context = _email_context(user=user, action_url=action_url)
-
-    try:
-        _send_multipart_email(
-            subject="Activate your Videoflix account",
-            template_base="email/activation_email",
-            context=context,
-            recipient=normalize_email(user.email),
-        )
-        delivered = True
-    except Exception as exc:  # pragma: no cover - defensive guard
-        logger.warning(
-            "Activation email delivery failed: user_id=%s, email=%s, error=%s",
-            getattr(user, "pk", None),
-            getattr(user, "email", None),
-            exc,
-        )
-        delivered = False
-        if not fail_silently:
-            raise
-
+    token, context = _build_activation_email_context(user)
+    delivered = _try_send_activation_email(user, context, fail_silently)
     if fail_silently:
         return token, delivered
     return token
@@ -75,33 +53,11 @@ def send_password_reset_email(
     email: str, *, fail_silently: bool = False
 ) -> str | tuple[str, bool]:
     """Send a password reset email to the user and return generated token."""
-    user_model = get_user_model()
-    normalized_email = normalize_email(email)
-    user = user_model.objects.get(email__iexact=normalized_email)
-
-    token = default_token_generator.make_token(user)
-    uidb64 = urlsafe_base64_encode(force_bytes(user.pk))
-    reset_link = build_frontend_url("reset", uidb64=uidb64, token=token)
-    context = _email_context(user=user, action_url=reset_link)
-    try:
-        _send_multipart_email(
-            subject="Reset your Videoflix password",
-            template_base="email/password_reset_email",
-            context=context,
-            recipient=normalized_email,
-        )
-        delivered = True
-    except Exception as exc:  # pragma: no cover - defensive guard
-        logger.warning(
-            "Password reset email delivery failed: user_id=%s, email=%s, error=%s",
-            getattr(user, "pk", None),
-            getattr(user, "email", None),
-            exc,
-        )
-        delivered = False
-        if not fail_silently:
-            raise
-
+    user, normalized_email = _get_user_for_password_reset(email)
+    token, context = _build_password_reset_context(user)
+    delivered = _try_send_password_reset_email(
+        user, normalized_email, context, fail_silently
+    )
     if fail_silently:
         return token, delivered
     return token
@@ -202,6 +158,8 @@ def login_user(email: str, password: str) -> tuple[AbstractBaseUser, dict[str, o
             {"non_field_errors": ["Invalid credentials."]}, reason="invalid_credentials"
         )
 
+    update_last_login(None, authenticated_user)
+
     access_token, access_expires = _generate_token(
         authenticated_user, ACCESS_TOKEN_LIFETIME, "access"
     )
@@ -225,43 +183,10 @@ def refresh_access_token(refresh_token: str) -> dict[str, object]:
     """Validate refresh token and issue a new access token."""
     payload = _decode_refresh_token(refresh_token)
     _ensure_refresh_token_is_valid(payload)
+    _ensure_refresh_not_blacklisted(payload)
 
-    jti = payload["jti"]
-    if _is_refresh_jti_blacklisted(jti):
-        raise ValidationError({"refresh_token": ["Invalid or expired refresh token."]})
-
-    user_id = payload.get("user_id")
-    if user_id is None:
-        raise ValidationError({"refresh_token": ["Invalid refresh token."]})
-
-    user_model = get_user_model()
-    try:
-        user = user_model.objects.get(pk=user_id)
-    except user_model.DoesNotExist:
-        raise ValidationError({"refresh_token": ["Invalid refresh token."]})
-
-    if not user.is_active:
-        raise ValidationError({"refresh_token": ["Invalid refresh token."]})
-
-    revoke_before_key = _USER_REFRESH_REVOKE_KEY.format(user_id=user.pk)
-    revoke_before = cache.get(revoke_before_key)
-    if revoke_before is not None:
-        try:
-            token_iat_epoch = int(payload.get("iat", 0))
-        except (TypeError, ValueError):
-            token_iat_epoch = None
-        try:
-            revoke_before_value = int(revoke_before)
-        except (TypeError, ValueError):
-            revoke_before_value = None
-        if (
-            token_iat_epoch is not None
-            and revoke_before_value is not None
-            and token_iat_epoch <= revoke_before_value
-        ):
-            raise ValidationError(
-                {"refresh_token": ["Invalid or expired refresh token."]}
-            )
+    user = _get_user_from_refresh_payload(payload)
+    _ensure_refresh_not_revoked(payload, user)
 
     access_token, access_expires = _generate_token(
         user, ACCESS_TOKEN_LIFETIME, "access"
@@ -393,12 +318,137 @@ def _ensure_refresh_token_is_valid(payload: dict[str, object]) -> None:
         raise ValidationError({"refresh_token": ["Invalid refresh token."]})
 
 
+def _ensure_refresh_not_blacklisted(payload: dict[str, object]) -> None:
+    """Raise ValidationError if the refresh token JTI is already blacklisted."""
+    jti = payload["jti"]
+    if _is_refresh_jti_blacklisted(jti):
+        raise ValidationError({"refresh_token": ["Invalid or expired refresh token."]})
+
+
+def _get_user_from_refresh_payload(payload: dict[str, object]) -> AbstractBaseUser:
+    """Return the user referenced by the refresh token payload or raise ValidationError."""
+    user_id = payload.get("user_id")
+    if user_id is None:
+        raise ValidationError({"refresh_token": ["Invalid refresh token."]})
+
+    user_model = get_user_model()
+    try:
+        user = user_model.objects.get(pk=user_id)
+    except user_model.DoesNotExist:
+        raise ValidationError({"refresh_token": ["Invalid refresh token."]})
+
+    if not user.is_active:
+        raise ValidationError({"refresh_token": ["Invalid refresh token."]})
+
+    return user
+
+
+def _ensure_refresh_not_revoked(
+    payload: dict[str, object], user: AbstractBaseUser
+) -> None:
+    """Check whether the refresh token was issued before a revoke timestamp."""
+    revoke_before_key = _USER_REFRESH_REVOKE_KEY.format(user_id=user.pk)
+    revoke_before = cache.get(revoke_before_key)
+    if revoke_before is None:
+        return
+
+    try:
+        token_iat_epoch = int(payload.get("iat", 0))
+    except (TypeError, ValueError):
+        token_iat_epoch = None
+    try:
+        revoke_before_value = int(revoke_before)
+    except (TypeError, ValueError):
+        revoke_before_value = None
+
+    if (
+        token_iat_epoch is not None
+        and revoke_before_value is not None
+        and token_iat_epoch <= revoke_before_value
+    ):
+        raise ValidationError({"refresh_token": ["Invalid or expired refresh token."]})
+
+
 def _refresh_blacklist_key(jti: str) -> str:
     return f"{REFRESH_BLACKLIST_KEY_PREFIX}{jti}"
 
 
 def _is_refresh_jti_blacklisted(jti: str) -> bool:
     return bool(cache.get(_refresh_blacklist_key(jti)))
+
+
+def _build_activation_email_context(user) -> tuple[str, dict[str, Any]]:
+    """Create activation token and template context for the given user."""
+    token = default_token_generator.make_token(user)
+    uidb64 = urlsafe_base64_encode(force_bytes(user.pk))
+    action_url = build_frontend_url("activate", uidb64=uidb64, token=token)
+    context = _email_context(user=user, action_url=action_url)
+    return token, context
+
+
+def _try_send_activation_email(
+    user, context: dict[str, Any], fail_silently: bool
+) -> bool:
+    """Send activation email; return delivery status and mirror fail_silently behavior."""
+    try:
+        _send_multipart_email(
+            subject="Activate your Videoflix account",
+            template_base="email/activation_email",
+            context=context,
+            recipient=normalize_email(user.email),
+        )
+        return True
+    except Exception as exc:  # pragma: no cover - defensive guard
+        logger.warning(
+            "Activation email delivery failed: user_id=%s, email=%s, error=%s",
+            getattr(user, "pk", None),
+            getattr(user, "email", None),
+            exc,
+        )
+        if not fail_silently:
+            raise
+        return False
+
+
+def _get_user_for_password_reset(email: str):
+    """Return the user and normalized email for password reset, propagating DoesNotExist."""
+    user_model = get_user_model()
+    normalized_email = normalize_email(email)
+    user = user_model.objects.get(email__iexact=normalized_email)
+    return user, normalized_email
+
+
+def _build_password_reset_context(user) -> tuple[str, dict[str, Any]]:
+    """Create password reset token and email context for the given user."""
+    token = default_token_generator.make_token(user)
+    uidb64 = urlsafe_base64_encode(force_bytes(user.pk))
+    reset_link = build_frontend_url("reset", uidb64=uidb64, token=token)
+    context = _email_context(user=user, action_url=reset_link)
+    return token, context
+
+
+def _try_send_password_reset_email(
+    user, normalized_email: str, context: dict[str, Any], fail_silently: bool
+) -> bool:
+    """Send password reset email; return delivery status and mirror fail_silently behavior."""
+    try:
+        _send_multipart_email(
+            subject="Reset your Videoflix password",
+            template_base="email/password_reset_email",
+            context=context,
+            recipient=normalized_email,
+        )
+        return True
+    except Exception as exc:  # pragma: no cover - defensive guard
+        logger.warning(
+            "Password reset email delivery failed: user_id=%s, email=%s, error=%s",
+            getattr(user, "pk", None),
+            getattr(user, "email", None),
+            exc,
+        )
+        if not fail_silently:
+            raise
+        return False
 
 
 def activate_user(*, uidb64: str, token: str) -> None:

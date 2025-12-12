@@ -305,29 +305,20 @@ def _logout_success_response(request):
 @permission_classes([AllowAny])
 def token_refresh(request):
     """Issue a new access token based on a valid refresh token cookie."""
-    try:
-        data = request.data
-    except ParseError as exc:
-        return Response(
-            {"errors": {"non_field_errors": [str(exc)]}},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
+    parse_response, data = _parse_token_refresh_request(request)
+    if parse_response is not None:
+        return parse_response
 
-    serializer = TokenRefreshSerializer(data)
-    if not serializer.is_valid():
-        return Response(
-            {"errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST
-        )
+    validation_response = _validate_token_refresh_serializer(data)
+    if validation_response is not None:
+        return validation_response
 
-    refresh_token = request.COOKIES.get("refresh_token")
-    if not refresh_token:
-        return Response(
-            {"errors": {"refresh_token": ["Refresh token cookie missing."]}},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
+    refresh_token = _get_refresh_cookie(request)
+    if refresh_token_response := refresh_token.get("response"):
+        return refresh_token_response
 
     try:
-        token_data = refresh_access_token(refresh_token)
+        token_data = refresh_access_token(refresh_token["value"])
     except ValidationError as exc:
         return Response(
             {"errors": format_validation_error(exc)},
@@ -335,6 +326,41 @@ def token_refresh(request):
         )
 
     return _refresh_success_response(request, token_data)
+
+
+def _parse_token_refresh_request(request):
+    """Parse request data for token refresh, returning (response, data) tuple."""
+    try:
+        return None, request.data
+    except ParseError as exc:
+        return (
+            Response(
+                {"errors": {"non_field_errors": [str(exc)]}},
+                status=status.HTTP_400_BAD_REQUEST,
+            ),
+            None,
+        )
+
+
+def _validate_token_refresh_serializer(data):
+    """Validate the token refresh serializer, returning a Response on failure."""
+    serializer = TokenRefreshSerializer(data)
+    if serializer.is_valid():
+        return None
+    return Response({"errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+
+
+def _get_refresh_cookie(request) -> dict[str, object]:
+    """Return refresh cookie value or a response if missing."""
+    refresh_token = request.COOKIES.get("refresh_token")
+    if refresh_token:
+        return {"value": refresh_token}
+    return {
+        "response": Response(
+            {"errors": {"refresh_token": ["Refresh token cookie missing."]}},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    }
 
 
 def _refresh_success_response(request, token_data: dict):

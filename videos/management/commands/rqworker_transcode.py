@@ -25,27 +25,20 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         """Resolve the worker implementation and begin processing queue jobs."""
+        parsed = self._parse_options(options)
+        get_worker = self._resolve_get_worker()
+        self._start_worker(
+            get_worker=get_worker,
+            queue_name=parsed["queue_name"],
+            burst=parsed["burst"],
+        )
+
+    def _parse_options(self, options) -> dict[str, object]:
+        """Validate CLI options and derive queue/burst parameters."""
         queue_name = getattr(settings, "RQ_QUEUE_TRANSCODE", "transcode").strip()
         if not queue_name:
             raise CommandError("RQ_QUEUE_TRANSCODE is not configured.")
-
-        get_worker = self._resolve_get_worker()
-
-        burst = bool(options.get("burst"))
-        burst_label = str(burst).lower()
-
-        worker_kwargs = self._worker_kwargs()
-        worker_description = worker_kwargs.pop("worker_description", "")
-
-        base_message = (
-            f"Starting RQ worker for queue '{queue_name}' (burst={burst_label})."
-        )
-        self.stdout.write(self.style.SUCCESS(base_message))
-        if worker_description:
-            self.stdout.write(self.style.SUCCESS(f"Worker class: {worker_description}"))
-
-        worker = self._init_worker(get_worker, queue_name, worker_kwargs)
-        worker.work(burst=burst)
+        return {"queue_name": queue_name, "burst": bool(options.get("burst"))}
 
     def _resolve_get_worker(self) -> Callable[..., Any]:
         try:
@@ -73,6 +66,28 @@ class Command(BaseCommand):
             return {}
 
         return {"worker_class": simple_worker, "worker_description": "rq.SimpleWorker"}
+
+    def _start_worker(
+        self,
+        *,
+        get_worker: Callable[..., Any],
+        queue_name: str,
+        burst: bool,
+    ) -> None:
+        """Initialise and start the RQ worker using resolved parameters."""
+        burst_label = str(burst).lower()
+        worker_kwargs = self._worker_kwargs()
+        worker_description = worker_kwargs.pop("worker_description", "")
+
+        base_message = (
+            f"Starting RQ worker for queue '{queue_name}' (burst={burst_label})."
+        )
+        self.stdout.write(self.style.SUCCESS(base_message))
+        if worker_description:
+            self.stdout.write(self.style.SUCCESS(f"Worker class: {worker_description}"))
+
+        worker = self._init_worker(get_worker, queue_name, worker_kwargs)
+        worker.work(burst=burst)
 
     def _init_worker(
         self,

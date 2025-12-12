@@ -50,9 +50,34 @@ def run_diagnose_backend(
     explicit_public: Sequence[int] | None = None,
     requested_res: Sequence[str] | None = None,
 ) -> dict[str, Any]:
+    """Run diagnostics across settings, videos, filesystem, routing, and views."""
     resolutions = _normalise_resolutions(settings, requested_res)
     resolution_hint = resolutions[0] if resolutions else "480p"
 
+    diagnostics = _collect_diagnose_sections(
+        settings, media_root, explicit_public, resolutions, resolution_hint
+    )
+    report, total_failures, total_warnings, global_warnings, _resolved_pairs = (
+        diagnostics
+    )
+
+    report["summary"] = _build_diagnose_summary(
+        failures=total_failures,
+        warnings=total_warnings,
+        global_warnings=global_warnings,
+    )
+
+    return report
+
+
+def _collect_diagnose_sections(
+    settings,
+    media_root: Path,
+    explicit_public: Sequence[int] | None,
+    resolutions: Sequence[str],
+    resolution_hint: str,
+) -> tuple[dict[str, Any], int, int, list[str], list[tuple[int, int, Video]]]:
+    """Collect each diagnostics section, tracking failures and warnings."""
     report: dict[str, Any] = {}
     total_failures = 0
     total_warnings = 0
@@ -93,16 +118,20 @@ def run_diagnose_backend(
     report["debug"] = debug_result
     total_failures += debug_result.get("failures", 0)
 
+    return report, total_failures, total_warnings, global_warnings, resolved_pairs
+
+
+def _build_diagnose_summary(
+    *, failures: int, warnings: int, global_warnings: list[str]
+) -> dict[str, Any]:
+    """Assemble the summary block for diagnose backend output."""
     summary = {
-        "failures": total_failures,
-        "warnings": total_warnings,
+        "failures": failures,
+        "warnings": warnings,
     }
     if global_warnings:
         summary["warning_messages"] = global_warnings
-
-    report["summary"] = summary
-
-    return report
+    return summary
 
 
 def format_diagnose_backend_text(report: dict[str, Any], verbose: bool) -> str:
@@ -297,35 +326,58 @@ def run_heal_hls_index(
     ordered_public = _ordered_public_ids(public_ids)
 
     for public_id in ordered_public:
-        entry = _init_heal_entry(public_id)
+        entry = _heal_single_public(
+            public_id=public_id,
+            settings=settings,
+            resolutions=resolutions,
+            stream_fields=stream_fields,
+            media_root=media_root,
+            write=write,
+            rebuild_master=rebuild_master,
+        )
         report.append(entry)
 
-        real_id = _resolve_real_id_for_heal(public_id, entry)
-        if real_id is None:
-            continue
-        video = _get_video_for_heal(real_id, entry)
-        if video is None:
-            continue
-
-        resolution_set = _normalise_resolutions(settings, resolutions)
-        stream_cache = _build_stream_cache(real_id, resolution_set)
-
-        ready_any = _process_resolutions(
-            entry=entry,
-            real_id=real_id,
-            resolution_set=resolution_set,
-            stream_cache=stream_cache,
-            media_root=media_root,
-            stream_fields=stream_fields,
-            write=write,
-        )
-
-        _maybe_rebuild_master_playlist(
-            entry, real_id, ready_any, rebuild_master=rebuild_master, write=write
-        )
-        _maybe_generate_thumbnail(entry, real_id, ready_any, write)
-
     return {"videos": report, "warnings": discovery_warnings}
+
+
+def _heal_single_public(
+    *,
+    public_id: int,
+    settings,
+    resolutions: Sequence[str] | None,
+    stream_fields: Sequence[str],
+    media_root: Path,
+    write: bool,
+    rebuild_master: bool,
+) -> dict[str, Any]:
+    """Heal a single public video ID and return its report entry."""
+    entry = _init_heal_entry(public_id)
+
+    real_id = _resolve_real_id_for_heal(public_id, entry)
+    if real_id is None:
+        return entry
+    video = _get_video_for_heal(real_id, entry)
+    if video is None:
+        return entry
+
+    resolution_set = _normalise_resolutions(settings, resolutions)
+    stream_cache = _build_stream_cache(real_id, resolution_set)
+
+    ready_any = _process_resolutions(
+        entry=entry,
+        real_id=real_id,
+        resolution_set=resolution_set,
+        stream_cache=stream_cache,
+        media_root=media_root,
+        stream_fields=stream_fields,
+        write=write,
+    )
+
+    _maybe_rebuild_master_playlist(
+        entry, real_id, ready_any, rebuild_master=rebuild_master, write=write
+    )
+    _maybe_generate_thumbnail(entry, real_id, ready_any, write)
+    return entry
 
 
 def _ordered_public_ids(public_ids: Sequence[int]) -> list[int]:
@@ -393,39 +445,65 @@ def _process_resolutions(
     """Process all requested resolutions for a video and update the report entry."""
     ready_any = False
     for resolution in resolution_set:
-        info = _scan_rendition(media_root, real_id, resolution)
-        _record_rendition_details(entry, resolution, info)
-
-        if info.errors:
-            entry["errors"].extend(info.errors)
-
-        stream = stream_cache.get(resolution)
-        if info.has_files:
-            ready_any = True
-
-        manifest_text, manifest_error = _manifest_text(info)
-        if manifest_error:
-            entry["errors"].append(manifest_error)
-
-        if stream is None:
-            _create_stream_if_needed(
-                entry, real_id, resolution, info, manifest_text, stream_fields, write
-            )
-            continue
-
-        if _is_stale_stream(entry, resolution, info):
-            continue
-
-        _update_stream_if_needed(
-            entry,
-            resolution,
-            stream,
-            manifest_text,
-            info.ts_count,
-            stream_fields,
-            write,
+        resolution_ready = _process_single_resolution(
+            entry=entry,
+            real_id=real_id,
+            resolution=resolution,
+            stream_cache=stream_cache,
+            media_root=media_root,
+            stream_fields=stream_fields,
+            write=write,
         )
+        ready_any = ready_any or resolution_ready
     return ready_any
+
+
+def _process_single_resolution(
+    *,
+    entry: dict[str, Any],
+    real_id: int,
+    resolution: str,
+    stream_cache: dict[str, Any],
+    media_root: Path,
+    stream_fields: Sequence[str],
+    write: bool,
+) -> bool:
+    """Process one resolution: scan, record details, and update/create streams."""
+    info = _scan_rendition(media_root, real_id, resolution)
+    _record_rendition_details(entry, resolution, info)
+
+    if info.errors:
+        entry["errors"].extend(info.errors)
+
+    stream = stream_cache.get(resolution)
+    if info.has_files:
+        resolution_ready = True
+    else:
+        resolution_ready = False
+
+    manifest_text, manifest_error = _manifest_text(info)
+    if manifest_error:
+        entry["errors"].append(manifest_error)
+
+    if stream is None:
+        _create_stream_if_needed(
+            entry, real_id, resolution, info, manifest_text, stream_fields, write
+        )
+        return resolution_ready
+
+    if _is_stale_stream(entry, resolution, info):
+        return resolution_ready
+
+    _update_stream_if_needed(
+        entry,
+        resolution,
+        stream,
+        manifest_text,
+        info.ts_count,
+        stream_fields,
+        write,
+    )
+    return resolution_ready
 
 
 def _record_rendition_details(entry: dict[str, Any], resolution: str, info) -> None:
@@ -493,27 +571,48 @@ def _update_stream_if_needed(
     write: bool,
 ) -> None:
     """Update manifest/segment counts on the stream when they differ."""
-    update_needed = False
+    update_fields = _collect_stream_update_fields(
+        stream, manifest_text, ts_count, stream_fields
+    )
+    if not update_fields:
+        return
+
+    entry["actions"].append(f"update_stream {resolution}")
+    if not write:
+        return
+
+    _apply_stream_updates(
+        stream, update_fields, manifest_text, ts_count, entry, resolution
+    )
+
+
+def _collect_stream_update_fields(
+    stream, manifest_text: str | None, ts_count: int, stream_fields: Sequence[str]
+) -> list[str]:
+    """Return list of fields that need updating based on manifest/segment count."""
     update_fields: list[str] = []
 
     if "manifest" in stream_fields and manifest_text is not None:
         if getattr(stream, "manifest", "") != manifest_text:
-            update_needed = True
             update_fields.append("manifest")
 
     if "segments" in stream_fields:
         current_segments = getattr(stream, "segments", None)
         if current_segments not in (ts_count, None):
-            update_needed = True
             update_fields.append("segments")
 
-    if not update_needed:
-        return
+    return update_fields
 
-    entry["actions"].append(f"update_stream {resolution}")
-    if not write or not update_fields:
-        return
 
+def _apply_stream_updates(
+    stream,
+    update_fields: list[str],
+    manifest_text: str | None,
+    ts_count: int,
+    entry: dict[str, Any],
+    resolution: str,
+) -> None:
+    """Persist stream updates, recording errors on failure."""
     try:
         if "manifest" in update_fields and manifest_text is not None:
             stream.manifest = manifest_text
@@ -819,31 +918,43 @@ def _inspect_filesystem(
 
     for public_id, real_id, _video in resolved:
         for resolution in resolutions or ["480p"]:
-            entry = _init_fs_entry(public_id, real_id, resolution)
-            entries.append(entry)
-
-            manifest_path, failures = _resolve_manifest_path(
-                entry, real_id, resolution, failures
+            fs_entry, failures = _inspect_single_resolution(
+                public_id, real_id, resolution, failures, media_root
             )
-            if manifest_path is None:
-                continue
-
-            failures = _populate_manifest_metadata(entry, manifest_path, failures)
-            manifest_text = _read_manifest_text_safe(entry, manifest_path)
-            segments = _extract_segments(manifest_text, entry)
-            available_sizes, zero_segment_name = _collect_segment_files(
-                manifest_path, segments, entry
-            )
-            _apply_segment_statistics(
-                entry, segments, available_sizes, zero_segment_name
-            )
-            failures = _update_failure_status(entry, failures)
+            entries.append(fs_entry)
 
     return {
         "entries": entries,
         "failures": failures,
         "warnings": warnings,
     }
+
+
+def _inspect_single_resolution(
+    public_id: int,
+    real_id: int,
+    resolution: str,
+    failures: int,
+    media_root: Path,
+) -> tuple[dict[str, Any], int]:
+    """Inspect filesystem state for one video/resolution pair."""
+    entry = _init_fs_entry(public_id, real_id, resolution)
+
+    manifest_path, failures = _resolve_manifest_path(
+        entry, real_id, resolution, failures
+    )
+    if manifest_path is None:
+        return entry, failures
+
+    failures = _populate_manifest_metadata(entry, manifest_path, failures)
+    manifest_text = _read_manifest_text_safe(entry, manifest_path)
+    segments = _extract_segments(manifest_text, entry)
+    available_sizes, zero_segment_name = _collect_segment_files(
+        manifest_path, segments, entry
+    )
+    _apply_segment_statistics(entry, segments, available_sizes, zero_segment_name)
+    failures = _update_failure_status(entry, failures)
+    return entry, failures
 
 
 def _init_fs_entry(public_id: int, real_id: int, resolution: str) -> dict[str, Any]:
@@ -1073,7 +1184,7 @@ def _invoke_views(
     ) = _exercise_view(
         factory=factory,
         auth_user=auth_user,
-        path=f"/api/video/{sample.public_id}/{sample.resolution}/index.m3u8",
+        path=_manifest_path(sample),
         view_class=VideoManifestView,
         view_kwargs={
             "movie_id": sample.public_id,
@@ -1098,7 +1209,7 @@ def _invoke_views(
     ) = _exercise_view(
         factory=factory,
         auth_user=auth_user,
-        path=f"/api/video/{sample.public_id}/{sample.resolution}/{sample.segment_name}",
+        path=_segment_path(sample),
         view_class=VideoSegmentContentView,
         view_kwargs={
             "movie_id": sample.public_id,
@@ -1124,6 +1235,16 @@ def _invoke_views(
     if warnings:
         results["warnings"] = warnings
     return results, header_report, header_warnings
+
+
+def _manifest_path(sample: _ViewSample) -> str:
+    """Build manifest URL path for a sample entry."""
+    return f"/api/video/{sample.public_id}/{sample.resolution}/index.m3u8"
+
+
+def _segment_path(sample: _ViewSample) -> str:
+    """Build segment URL path for a sample entry."""
+    return f"/api/video/{sample.public_id}/{sample.resolution}/{sample.segment_name}"
 
 
 def _select_view_sample(
@@ -1352,6 +1473,7 @@ def _maybe_check_cors_options(
     sample: _ViewSample,
     factory: APIRequestFactory,
 ) -> tuple[dict[str, Any] | None, list[str]]:
+    """Issue an OPTIONS request for manifest endpoint to inspect CORS headers."""
     warnings: list[str] = []
     info: dict[str, Any] | None = None
 
@@ -1475,6 +1597,7 @@ class _RenditionInfo:
 
 
 def _scan_rendition(media_root: Path, real_id: int, resolution: str) -> _RenditionInfo:
+    """Inspect a rendition on disk and return manifest/segment metrics and errors."""
     errors: list[str] = []
     manifest_path: Path | None = None
     exists = False

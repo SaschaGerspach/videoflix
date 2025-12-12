@@ -30,14 +30,26 @@ def schedule_default_transcodes(video_id: int, *, force: bool = False) -> None:
     scheduling within a short timeframe.
     """
     source_path = transcode_services.get_video_source_path(video_id)
-    if not source_path.exists():
-        logger.info("autotranscode: skip (no source): video_id=%s", video_id)
+    if not _source_exists(source_path, video_id):
         return
 
     if not _acquire_debounce(video_id, force=force):
         logger.info("autotranscode: skip (debounced): video_id=%s", video_id)
         return
 
+    _attempt_enqueue_defaults(video_id, force)
+
+
+def _source_exists(source_path, video_id: int) -> bool:
+    """Return True if the source file exists, logging skip otherwise."""
+    if source_path.exists():
+        return True
+    logger.info("autotranscode: skip (no source): video_id=%s", video_id)
+    return False
+
+
+def _attempt_enqueue_defaults(video_id: int, force: bool) -> None:
+    """Attempt to enqueue default renditions and handle logging/debounce cleanup."""
     try:
         queued, result = enqueue_dynamic_renditions(video_id, force=force)
     except Exception as exc:  # pragma: no cover - defensive safeguard

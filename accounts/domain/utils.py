@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 from urllib.parse import urlencode
-
+from django.templatetags.static import static
 from django.conf import settings
 from django.http import HttpRequest
 
@@ -30,23 +30,30 @@ def build_frontend_url(
 
 
 def build_logo_url(request: HttpRequest | None = None) -> str:
-    """Create an absolute URL to the logo asset.
+    """
+    Return the URL to the email logo in static/email/logo_icon.svg.
 
     Preference order:
-    1. request.build_absolute_uri when a request is available
-    2. PUBLIC_MEDIA_BASE fallback (which already points to an externally reachable host)
-    3. Frontend domain as a final fallback
+    1. If a request is provided, return an absolute URL based on that request.
+    2. If PUBLIC_MEDIA_BASE is configured, return an absolute URL based on that base.
+    3. Otherwise, return the relative static path.
     """
-    media_url = str(getattr(settings, "MEDIA_URL", "/media/") or "/media/")
-    relative_logo = f"{media_url.rstrip('/')}/logo/logo_icon.svg"
+    # 1) relativer Pfad aus dem Static-System
+    # -> "/static/email/logo_icon.svg"
+    relative_logo = static("email/logo_icon.svg")
 
+    # 1. Priorität: Request -> absolute URL
     if request is not None:
         return request.build_absolute_uri(relative_logo)
 
+    # 2. Priorität: PUBLIC_MEDIA_BASE als Host/Fallback
     public_media_base = getattr(settings, "PUBLIC_MEDIA_BASE", "")
-    base = public_media_base or _resolve_frontend_base()
-    base = _ensure_scheme(base).rstrip("/")
-    return f"{base}{relative_logo}"
+    if public_media_base:
+        base = public_media_base.rstrip("/")
+        return f"{base}{relative_logo}"
+
+    # 3. Fallback: relative URL reicht
+    return relative_logo
 
 
 def _resolve_frontend_base() -> str:

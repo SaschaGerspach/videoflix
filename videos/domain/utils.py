@@ -76,27 +76,13 @@ def resolve_source_path(
     )
 
     def record(candidate: Path | None) -> Path | None:
-        if candidate is None:
-            return None
-        candidate = candidate.expanduser()
-        if checked_paths is not None:
-            checked_paths.append(candidate)
-        if candidate.exists():
-            return candidate
-        return None
+        return _record_candidate(candidate, checked_paths)
 
     for field_name in field_names:
         attr = getattr(video, field_name, None)
         if not attr:
             continue
-        candidate: Path | None = None
-        if hasattr(attr, "path"):
-            try:
-                candidate = Path(attr.path)
-            except (TypeError, ValueError):
-                candidate = None
-        elif isinstance(attr, (str, Path)):
-            candidate = Path(attr)
+        candidate = _candidate_from_attr(attr)
         found = record(candidate)
         if found:
             return found
@@ -236,3 +222,29 @@ def _normalize_bitrate(raw_value) -> int | None:
     if bits_per_second <= 0:
         return None
     return max(1, bits_per_second // 1000)
+
+
+def _record_candidate(
+    candidate: Path | None, checked_paths: list[Path] | None
+) -> Path | None:
+    """Record a candidate path and return it if it exists."""
+    if candidate is None:
+        return None
+    candidate = candidate.expanduser()
+    if checked_paths is not None:
+        checked_paths.append(candidate)
+    if candidate.exists():
+        return candidate
+    return None
+
+
+def _candidate_from_attr(attr) -> Path | None:
+    """Build a Path candidate from a video attribute."""
+    if hasattr(attr, "path"):
+        try:
+            return Path(attr.path)
+        except (TypeError, ValueError):
+            return None
+    if isinstance(attr, (str, Path)):
+        return Path(attr)
+    return None

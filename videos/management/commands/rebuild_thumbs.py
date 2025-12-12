@@ -45,17 +45,43 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         """Resolve requested video IDs and delegate healing to media_maintenance."""
+        parsed = self._parse_options(options)
+        resolved_ids = self._resolve_targets(parsed["public_ids"], parsed["real_ids"])
+        if parsed["force"]:
+            self.stderr.write(
+                self.style.WARNING(
+                    "--force is ignored; media_maintenance overwrites thumbnails as needed."
+                )
+            )
+        if not resolved_ids:
+            self.stdout.write("No matching videos found; nothing to do.")
+            return
+
+        args: list[str] = ["--heal"]
+        for real_id in sorted(resolved_ids):
+            args.extend(["--real", str(real_id)])
+
+        payload = self._run_media_maintenance(args)
+        self._emit_payload(payload, parsed["json"])
+
+    def _parse_options(self, options) -> dict[str, object]:
+        """Parse CLI options and emit deprecation warning."""
         self.stderr.write(
             self.style.WARNING(
                 "This command is deprecated; please use `media_maintenance --heal`."
             )
         )
+        return {
+            "public_ids": [int(value) for value in options.get("public") or []],
+            "real_ids": {int(value) for value in options.get("real") or []},
+            "json": bool(options.get("json")),
+            "force": bool(options.get("force")),
+        }
 
-        public_ids: list[int] = [int(value) for value in options.get("public") or []]
-        explicit_reals = {int(value) for value in options.get("real") or []}
-        wants_json: bool = bool(options.get("json"))
-        force: bool = bool(options.get("force"))
-
+    def _resolve_targets(
+        self, public_ids: list[int], explicit_reals: set[int]
+    ) -> set[int]:
+        """Resolve public IDs to real IDs and report any missing values."""
         resolved_ids = set(explicit_reals)
         invalid_publics: list[int] = []
 
@@ -68,23 +94,7 @@ class Command(BaseCommand):
         for public_id in invalid_publics:
             self.stderr.write(f"Ignoring unknown public id: {public_id}")
 
-        if force:
-            self.stderr.write(
-                self.style.WARNING(
-                    "--force is ignored; media_maintenance overwrites thumbnails as needed."
-                )
-            )
-
-        if not resolved_ids:
-            self.stdout.write("No matching videos found; nothing to do.")
-            return
-
-        args: list[str] = ["--heal"]
-        for real_id in sorted(resolved_ids):
-            args.extend(["--real", str(real_id)])
-
-        payload = self._run_media_maintenance(args)
-        self._emit_payload(payload, wants_json)
+        return resolved_ids
 
     def _run_media_maintenance(self, base_args: list[str]) -> dict:
         """Run media_maintenance with the supplied arguments and parse its JSON output."""

@@ -10,6 +10,7 @@ from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.renderers import JSONRenderer
 from rest_framework.negotiation import BaseContentNegotiation
+from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from drf_spectacular.types import OpenApiTypes
@@ -87,21 +88,10 @@ class VideoSegmentView(MediaSegmentBaseView):
     def get(self, request, movie_id: int, resolution: str):
         """Return the master playlist by checking filesystem first, then DB."""
         self._log_debug_request(request)
-        real_id = self._resolve_real_id(movie_id)
-        if real_id is None:
-            return self._not_found_json()
-
-        validation = self._validate_request(real_id, resolution)
-        if not isinstance(validation, dict):
+        validation = self._resolve_and_authorize_manifest(request, movie_id, resolution)
+        if isinstance(validation, Response):
             return validation
-
-        resolution_value = validation["resolution"]
-        video = self._get_video_or_404(real_id)
-        if video is None:
-            return self._not_found_json()
-
-        if not _user_can_access(request, video):
-            return self._not_found_json()
+        real_id, resolution_value = validation
 
         allowed_renditions = _get_allowed_renditions()
         fs_exists, manifest_path = self._manifest_paths(real_id, resolution_value)
@@ -267,6 +257,28 @@ class VideoSegmentView(MediaSegmentBaseView):
             {"errors": {"non_field_errors": ["Video manifest not found."]}},
             status.HTTP_404_NOT_FOUND,
         )
+
+    def _resolve_and_authorize_manifest(
+        self, request, movie_id: int, resolution: str
+    ) -> Response | tuple[int, str]:
+        """Resolve public ID, validate payload, fetch video, and check access."""
+        real_id = self._resolve_real_id(movie_id)
+        if real_id is None:
+            return self._not_found_json()
+
+        validation = self._validate_request(real_id, resolution)
+        if not isinstance(validation, dict):
+            return validation
+
+        resolution_value = validation["resolution"]
+        video = self._get_video_or_404(real_id)
+        if video is None:
+            return self._not_found_json()
+
+        if not _user_can_access(request, video):
+            return self._not_found_json()
+
+        return real_id, resolution_value
 
 
 class VideoManifestView(VideoSegmentView):
