@@ -79,7 +79,7 @@ def resolve_auth_frontend_base() -> str:
         if base.endswith("/api"):
             base = base[: -len("/api")]
         return base
-    return "http://127.0.0.1:5500"
+    return "https://videoflix.sascha-gerspach.de"
 
 
 def _ensure_scheme(url: str) -> str:

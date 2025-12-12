@@ -14,6 +14,8 @@ from videos.domain.services_autotranscode import publish_and_enqueue
 
 
 class VideoAdminForm(forms.ModelForm):
+    """Admin form that adds optional source and thumbnail uploads with validation."""
+
     source_file = forms.FileField(required=False, help_text="Optional source upload.")
     thumbnail_image = forms.ImageField(
         required=False, help_text="Optional thumbnail upload."
@@ -25,8 +27,8 @@ class VideoAdminForm(forms.ModelForm):
     class Meta:
         model = Video
         fields = "__all__"
+        exclude = ("owner",)
         field_order = [
-            "owner",
             "title",
             "description",
             "source_file",
@@ -39,12 +41,7 @@ class VideoAdminForm(forms.ModelForm):
         file = self.cleaned_data.get("source_file")
         if not file:
             return file
-
-        content_type = getattr(file, "content_type", "") or ""
-        name = getattr(file, "name", "") or ""
-        if content_type.startswith("video/"):
-            return file
-        if name.lower().endswith(self._VIDEO_EXTENSIONS):
+        if self._is_video_file(file):
             return file
         raise forms.ValidationError("Please upload a video file (e.g. MP4).")
 
@@ -52,71 +49,88 @@ class VideoAdminForm(forms.ModelForm):
         file = self.cleaned_data.get("thumbnail_image")
         if not file:
             return file
-
-        content_type = getattr(file, "content_type", "") or ""
-        name = getattr(file, "name", "") or ""
-        if content_type.startswith("image/") or name.lower().endswith(
-            self._IMAGE_EXTENSIONS
-        ):
+        if self._is_image_file(file):
             return file
         raise forms.ValidationError("Please upload a valid image file (PNG/JPEG/etc.).")
+
+    def _is_video_file(self, file) -> bool:
+        """Check whether the uploaded file looks like a video."""
+        content_type = getattr(file, "content_type", "") or ""
+        name = getattr(file, "name", "") or ""
+        return content_type.startswith("video/") or name.lower().endswith(
+            self._VIDEO_EXTENSIONS
+        )
+
+    def _is_image_file(self, file) -> bool:
+        """Check whether the uploaded file looks like an image."""
+        content_type = getattr(file, "content_type", "") or ""
+        name = getattr(file, "name", "") or ""
+        return content_type.startswith("image/") or name.lower().endswith(
+            self._IMAGE_EXTENSIONS
+        )
 
 
 @admin.register(Video)
 class VideoAdmin(admin.ModelAdmin):
+    """Admin for managing videos, renditions, and related bulk actions."""
+
     form = VideoAdminForm
-    fieldsets = (
-        (
-            "Video",
-            {
-                "fields": (
-                    "owner",
-                    "title",
-                    "description",
-                    "source_file",
-                    "thumbnail_image",
-                    "category",
-                    "is_published",
-                )
-            },
-        ),
-        (
-            "Status & Renditions",
-            {
-                "fields": (
-                    "status",
-                    "transcode_state_readonly",
-                    "available_resolutions_readonly",
-                )
-            },
-        ),
-        (
-            "Metadata",
-            {
-                "fields": (
-                    "metadata_display",
-                    "width",
-                    "height",
-                    "duration_seconds",
-                    "video_bitrate_kbps",
-                    "audio_bitrate_kbps",
-                    "codec_name",
-                )
-            },
-        ),
-    )
+
+    @staticmethod
+    def _build_fieldsets():
+        """Return fieldset configuration for video details, status, and metadata."""
+        return (
+            (
+                "Video",
+                {
+                    "fields": (
+                        "title",
+                        "description",
+                        "source_file",
+                        "thumbnail_image",
+                        "category",
+                        "is_published",
+                    )
+                },
+            ),
+            (
+                "Status & Renditions",
+                {
+                    "fields": (
+                        "status",
+                        "transcode_state_readonly",
+                        "available_resolutions_readonly",
+                    )
+                },
+            ),
+            (
+                "Metadata",
+                {
+                    "fields": (
+                        "metadata_display",
+                        "width",
+                        "height",
+                        "duration_seconds",
+                        "video_bitrate_kbps",
+                        "audio_bitrate_kbps",
+                        "codec_name",
+                    )
+                },
+            ),
+        )
+
+    fieldsets = _build_fieldsets.__func__()
 
     class AvailableRenditionsFilter(admin.SimpleListFilter):
+        """Filter videos by the presence of specific HLS renditions."""
+
         title = "Available renditions"
         parameter_name = "available_renditions"
         valid_values = ("480p", "720p", "1080p")
 
         def __init__(self, request, params, model, model_admin):
             super().__init__(request, params, model, model_admin)
-            selected = request.GET.getlist(self.parameter_name)
-            self.selected_values = [
-                value for value in selected if value in self.valid_values
-            ]
+            self.selected_values = self._parse_selected(request)
 
         def lookups(self, request, model_admin):
             return [(value, value) for value in self.valid_values]
@@ -125,12 +139,7 @@ class VideoAdmin(admin.ModelAdmin):
             return self.selected_values
 
         def queryset(self, request, queryset):
-            if not self.selected_values:
-                return queryset
-            qs = queryset
-            for resolution in self.selected_values:
-                qs = qs.filter(streams__resolution=resolution)
-            return qs.distinct()
+            return self._filter_by_selected(queryset)
 
         def choices(self, changelist):
             current = set(self.selected_values)
@@ -164,6 +173,20 @@ class VideoAdmin(admin.ModelAdmin):
                     "display": title,
                 }
 
+        def _parse_selected(self, request):
+            """Parse selected resolution values from the query string."""
+            selected = request.GET.getlist(self.parameter_name)
+            return [value for value in selected if value in self.valid_values]
+
+        def _filter_by_selected(self, queryset):
+            """Filter the queryset based on currently selected renditions."""
+            if not self.selected_values:
+                return queryset
+            qs = queryset
+            for resolution in self.selected_values:
+                qs = qs.filter(streams__resolution=resolution)
+            return qs.distinct()
+
     class HeightRangeFilter(admin.SimpleListFilter):
         title = "Height (px)"
         parameter_name = "height_range"
@@ -188,42 +211,66 @@ class VideoAdmin(admin.ModelAdmin):
                 return queryset.filter(height__gte=2160)
             return queryset
 
-    list_display = (
-        "id",
-        "title",
-        "owner",
-        "is_published",
-        "available_resolutions_display",
-        "transcode_state_display",
-        "metadata_display",
-        "last_modified_display",
-    )
-    readonly_fields = (
-        "transcode_state_readonly",
-        "available_resolutions_readonly",
-        "metadata_display",
-        "status",
-        "width",
-        "height",
-        "duration_seconds",
-        "video_bitrate_kbps",
-        "audio_bitrate_kbps",
-        "codec_name",
-    )
+    @staticmethod
+    def _init_list_display():
+        """Return list display tuple for the changelist view."""
+        return (
+            "id",
+            "title",
+            "is_published",
+            "available_resolutions_display",
+            "transcode_state_display",
+            "metadata_display",
+            "last_modified_display",
+        )
+
+    @staticmethod
+    def _init_readonly_fields():
+        """Return readonly field names for the admin form."""
+        return (
+            "transcode_state_readonly",
+            "available_resolutions_readonly",
+            "metadata_display",
+            "status",
+            "width",
+            "height",
+            "duration_seconds",
+            "video_bitrate_kbps",
+            "audio_bitrate_kbps",
+            "codec_name",
+        )
+
+    @staticmethod
+    def _init_list_filter():
+        """Return list_filter configuration for changelist view."""
+        return ("is_published", AvailableRenditionsFilter, HeightRangeFilter)
+
+    @staticmethod
+    def _init_search_fields():
+        """Return search fields for the changelist view."""
+        return ("title", "owner__username", "id")
+
+    @staticmethod
+    def _init_actions():
+        """Return available admin actions for Video entries."""
+        return [
+            "publish_and_render_action",
+            "regenerate_thumbnail_action",
+            "reencode_all_renditions",
+            "enqueue_480p",
+            "enqueue_720p",
+            "enqueue_1080p",
+            "reencode_1080p",
+            "reencode_720p",
+            "reencode_480p",
+            "purge_hls",
+        ]
+
+    list_display = _init_list_display.__func__()
+    readonly_fields = _init_readonly_fields.__func__()
     list_filter = ("is_published", AvailableRenditionsFilter, HeightRangeFilter)
-    search_fields = ("title", "owner__username", "id")
-    actions = [
-        "publish_and_render_action",
-        "regenerate_thumbnail_action",
-        "reencode_all_renditions",
-        "enqueue_480p",
-        "enqueue_720p",
-        "enqueue_1080p",
-        "reencode_1080p",
-        "reencode_720p",
-        "reencode_480p",
-        "purge_hls",
-    ]
+    search_fields = _init_search_fields.__func__()
+    actions = _init_actions.__func__()
 
     def save_model(self, request, obj, form, change):
         source_file = form.cleaned_data.get("source_file")
@@ -252,6 +299,7 @@ class VideoAdmin(admin.ModelAdmin):
             self._save_thumbnail(obj, thumbnail_image)
 
     def _save_thumbnail(self, obj: Video, thumbnail_image):
+        """Persist uploaded thumbnail file and update thumbnail_url."""
         thumb_path = thumb_utils.get_thumbnail_path(obj.pk, size="default")
         thumb_path.parent.mkdir(parents=True, exist_ok=True)
         with thumb_path.open("wb") as destination:
@@ -350,6 +398,7 @@ class VideoAdmin(admin.ModelAdmin):
         force: bool = False,
         allow_existing: bool = False,
     ) -> None:
+        """Queue transcodes for a specific resolution with optional overrides."""
         queued = failed = skipped_locked = skipped_existing = 0
         for video in queryset:
             available = set(hls_utils.get_available_resolutions(video.id))

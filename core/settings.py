@@ -96,13 +96,13 @@ ENV = env("ENV", "dev")
 USE_SQLITE_FOR_TESTS = env_bool("USE_SQLITE_FOR_TESTS", False)
 IS_TEST_ENV = ENV.lower() == "test" or USE_SQLITE_FOR_TESTS or IS_PYTEST
 
-DEV_FRONTEND_ORIGIN = env("DEV_FRONTEND_ORIGIN", "http://127.0.0.1:5500")
+DEV_FRONTEND_ORIGIN = env("DEV_FRONTEND_ORIGIN", "https://videoflix.sascha-gerspach.de")
 DEV_COOKIE_SAMESITE = env("DEV_COOKIE_SAMESITE", "None")
 DEV_COOKIE_SECURE = env_bool("DEV_COOKIE_SECURE", True)
 DEV_TLS_CERT = env("DEV_TLS_CERT", "")
 DEV_TLS_KEY = env("DEV_TLS_KEY", "")
-PUBLIC_MEDIA_BASE = env("PUBLIC_MEDIA_BASE", "http://127.0.0.1:8000")
-PUBLIC_API_BASE = env("PUBLIC_API_BASE", "http://127.0.0.1:8000")
+PUBLIC_MEDIA_BASE = env("PUBLIC_MEDIA_BASE", "https://videoflix.api.sascha-gerspach.de")
+PUBLIC_API_BASE = env("PUBLIC_API_BASE", "https://videoflix.api.sascha-gerspach.de")
 
 ALLOWED_HOSTS = env_csv("ALLOWED_HOSTS", default="127.0.0.1,localhost")
 CSRF_TRUSTED_ORIGINS = env_csv("CSRF_TRUSTED_ORIGINS", allow_default=False)
@@ -304,7 +304,7 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-FRONTEND_DOMAIN = "http://127.0.0.1:5500"
+FRONTEND_DOMAIN = "https://videoflix.sascha-gerspach.de"
 
 JWT_ACCESS_LIFETIME_SECONDS = env_int("JWT_ACCESS_LIFETIME_SECONDS", 900)
 JWT_REFRESH_LIFETIME_SECONDS = env_int("JWT_REFRESH_LIFETIME_SECONDS", 1209600)
@@ -353,6 +353,14 @@ REST_FRAMEWORK.update(
 )
 
 VIDEO_UPLOAD_MAX_BYTES = env_int("VIDEO_UPLOAD_MAX_BYTES", 2 * 1024 * 1024 * 1024)
+DATA_UPLOAD_MAX_MEMORY_SIZE = env_int(
+    "DATA_UPLOAD_MAX_MEMORY_SIZE",
+    1024 * 1024 * 1024,  # 1 GB
+)
+FILE_UPLOAD_MAX_MEMORY_SIZE = env_int(
+    "FILE_UPLOAD_MAX_MEMORY_SIZE",
+    DATA_UPLOAD_MAX_MEMORY_SIZE,
+)
 
 SPECTACULAR_SETTINGS = {
     "TITLE": "Videoflix API",
@@ -422,7 +430,7 @@ if DEBUG:
 
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
-PUBLIC_MEDIA_BASE = env("PUBLIC_MEDIA_BASE", "http://127.0.0.1:8000")
+PUBLIC_MEDIA_BASE = env("PUBLIC_MEDIA_BASE", "https://videoflix.api.sascha-gerspach.de")
 
 VIDEO_RUNG_RULES_DEFAULT = {
     "1080p": {"min_height": 1080, "min_total_kbps": 3500},
