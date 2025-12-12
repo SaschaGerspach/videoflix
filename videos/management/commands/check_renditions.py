@@ -71,6 +71,15 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         """Resolve requested videos and print rendition status summaries."""
+        parsed = self._parse_options(options)
+        self._run_checks(
+            public_inputs=parsed["public_inputs"],
+            real_inputs=parsed["real_inputs"],
+            resolutions=parsed["resolutions"],
+        )
+
+    def _parse_options(self, options) -> dict[str, object]:
+        """Validate options and normalise identifiers and resolutions."""
         public_inputs = _flatten(options.get("public_ids"))
         real_inputs = _flatten(options.get("real_ids"))
         raw_resolutions = options.get("resolutions") or []
@@ -83,7 +92,20 @@ class Command(BaseCommand):
 
         if not public_inputs and not real_inputs:
             raise CommandError("Provide at least one --public or --real identifier.")
+        return {
+            "public_inputs": public_inputs,
+            "real_inputs": real_inputs,
+            "resolutions": resolutions,
+        }
 
+    def _run_checks(
+        self,
+        *,
+        public_inputs: list[int],
+        real_inputs: list[int],
+        resolutions: list[str],
+    ) -> None:
+        """Execute rendition checks and emit the same reporting output."""
         invalid_publics: list[int] = []
         public_mapping: dict[int, list[int]] = {}
         resolved_reals: list[int] = []

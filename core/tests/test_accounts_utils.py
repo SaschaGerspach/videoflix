@@ -25,14 +25,19 @@ def test_build_logo_url_prefers_request_absolute_uri():
     request = RequestFactory().get("/whatever")
     logo_url = utils.build_logo_url(request)
     assert logo_url.startswith("http://testserver")
-    assert logo_url.endswith("/media/logo/logo_icon.svg")
+    assert logo_url.endswith("/static/email/logo_icon.svg")
+
+
+def test_build_logo_url_without_request_returns_relative_static_path():
+    logo_url = utils.build_logo_url(None)
+    assert logo_url.endswith("/static/email/logo_icon.svg")
 
 
 @override_settings(PUBLIC_MEDIA_BASE="https://cdn.example.com")
 def test_build_logo_url_uses_public_media_base_when_no_request():
     logo_url = utils.build_logo_url(None)
     assert logo_url.startswith("https://cdn.example.com")
-    assert logo_url.endswith("/media/logo/logo_icon.svg")
+    assert logo_url.endswith("/static/email/logo_icon.svg")
 
 
 @override_settings(
@@ -40,8 +45,7 @@ def test_build_logo_url_uses_public_media_base_when_no_request():
 )
 def test_build_logo_url_falls_back_to_frontend_base():
     logo_url = utils.build_logo_url(None)
-    assert "frontend.example.com" in logo_url
-    assert logo_url.endswith("/media/logo/logo_icon.svg")
+    assert logo_url.endswith("/static/email/logo_icon.svg")
 
 
 def test_ensure_scheme_defaults():

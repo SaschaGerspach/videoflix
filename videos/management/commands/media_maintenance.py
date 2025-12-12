@@ -84,6 +84,31 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         """Execute the requested maintenance actions and emit reports."""
+        parsed = self._parse_options(options)
+        result, messages = self._run_actions(
+            actions=parsed["actions"],
+            videos=parsed["videos"],
+            resolutions=parsed["resolutions"],
+            output_json=parsed["output_json"],
+            confirm=parsed["confirm"],
+        )
+        self._print_report(result, messages, parsed["output_json"])
+
+    def _parse_options(self, options) -> dict[str, object]:
+        """Validate selected actions and prepare common parameters."""
+        actions = self._parse_actions(options)
+        resolutions = self._resolve_resolutions(options.get("resolutions"))
+        videos = self._load_videos(options.get("public_ids"), options.get("real_ids"))
+        return {
+            "actions": actions,
+            "resolutions": resolutions,
+            "videos": videos,
+            "output_json": bool(options.get("json")),
+            "confirm": bool(options.get("confirm")),
+        }
+
+    def _parse_actions(self, options) -> dict[str, bool]:
+        """Extract requested actions and ensure at least one is selected."""
         actions = {
             "scan": options.get("scan"),
             "heal": options.get("heal"),
@@ -94,12 +119,18 @@ class Command(BaseCommand):
             raise CommandError(
                 "Select at least one action: --scan/--heal/--enqueue-missing/--prune-orphans."
             )
+        return actions
 
-        resolutions = self._resolve_resolutions(options.get("resolutions"))
-        videos = self._load_videos(options.get("public_ids"), options.get("real_ids"))
-        output_json = bool(options.get("json"))
-        confirm = bool(options.get("confirm"))
-
+    def _run_actions(
+        self,
+        *,
+        actions: dict[str, bool],
+        videos: dict[int, Video],
+        resolutions: Sequence[str],
+        output_json: bool,
+        confirm: bool,
+    ) -> tuple[dict[str, object], list[str]]:
+        """Execute enabled actions and collect structured results and messages."""
         result: dict[str, object] = {}
         messages: list[str] = []
 
@@ -127,13 +158,19 @@ class Command(BaseCommand):
             if not output_json:
                 messages.extend(self._format_prune_messages(prune_data, confirm))
 
+        return result, messages
+
+    def _print_report(
+        self, result: dict[str, object], messages: list[str], output_json: bool
+    ) -> None:
+        """Emit either JSON output or the collected human-readable messages."""
         if output_json:
             self.stdout.write(json.dumps(result, indent=2))
-        else:
-            if not messages:
-                messages.append("media_maintenance completed; no actions required.")
-            for line in messages:
-                self.stdout.write(line)
+            return
+        if not messages:
+            messages.append("media_maintenance completed; no actions required.")
+        for line in messages:
+            self.stdout.write(line)
 
     def _resolve_resolutions(self, raw) -> list[str]:
         """Flatten the --res arguments into a unique resolution list."""
@@ -150,12 +187,33 @@ class Command(BaseCommand):
         real_inputs: Sequence[Sequence[int]] | None,
     ) -> dict[int, Video]:
         """Resolve public + real IDs into a video map, raising when identifiers are invalid."""
-        public_ids = _flatten(public_inputs)
-        real_ids = _flatten(real_inputs)
+        public_ids, real_ids = self._collect_ids(public_inputs, real_inputs)
 
         if not public_ids and not real_ids:
             return {video.pk: video for video in Video.objects.all()}
 
+        resolved_reals, invalid_publics = self._resolve_public_ids(public_ids)
+        self._raise_on_invalid_publics(invalid_publics)
+
+        combined_ids = self._combined_ids(resolved_reals, real_ids)
+        videos, missing = self._fetch_videos(combined_ids)
+        self._raise_on_missing_reals(missing)
+        return videos
+
+    def _collect_ids(
+        self,
+        public_inputs: Sequence[Sequence[int]] | None,
+        real_inputs: Sequence[Sequence[int]] | None,
+    ) -> tuple[list[int], list[int]]:
+        """Flatten nested CLI inputs for public and real IDs."""
+        public_ids = _flatten(public_inputs)
+        real_ids = _flatten(real_inputs)
+        return public_ids, real_ids
+
+    def _resolve_public_ids(
+        self, public_ids: Sequence[int]
+    ) -> tuple[list[int], list[int]]:
+        """Resolve public IDs to real IDs, returning resolved list and invalid entries."""
         invalid_publics: list[int] = []
         resolved_reals: list[int] = []
         for public in public_ids:
@@ -165,25 +223,40 @@ class Command(BaseCommand):
                 invalid_publics.append(public)
                 continue
             resolved_reals.append(real_id)
+        return resolved_reals, invalid_publics
 
+    def _raise_on_invalid_publics(self, invalid_publics: list[int]) -> None:
+        """Raise CommandError when invalid public IDs are detected."""
         if invalid_publics:
             raise CommandError(
                 f"Invalid public id(s): {', '.join(str(pid) for pid in invalid_publics)}"
             )
 
+    def _combined_ids(
+        self, resolved_reals: list[int], real_ids: list[int]
+    ) -> list[int]:
+        """Merge and deduplicate resolved and explicit real IDs."""
         combined_ids = _unique(resolved_reals + real_ids)
         if not combined_ids:
             raise CommandError("No valid video identifiers provided.")
+        return combined_ids
 
+    def _fetch_videos(
+        self, combined_ids: list[int]
+    ) -> tuple[dict[int, Video], list[int]]:
+        """Fetch videos for provided IDs and return missing IDs if any."""
         videos = {
             video.pk: video for video in Video.objects.filter(pk__in=combined_ids)
         }
         missing = [vid for vid in combined_ids if vid not in videos]
+        return videos, missing
+
+    def _raise_on_missing_reals(self, missing: list[int]) -> None:
+        """Raise CommandError when real IDs cannot be found."""
         if missing:
             raise CommandError(
                 f"Video(s) not found for real id(s): {', '.join(str(mid) for mid in missing)}"
             )
-        return videos
 
     def _action_scan(
         self, videos: dict[int, Video], resolutions: Sequence[str]

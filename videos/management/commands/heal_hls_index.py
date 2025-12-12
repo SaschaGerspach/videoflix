@@ -51,16 +51,20 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         """Translate CLI options into media_maintenance arguments."""
+        parsed = self._parse_options(options)
+        args = self._build_media_maintenance_args(
+            parsed["public_ids"], parsed["resolutions"]
+        )
+        payload = self._run_media_maintenance(args)
+        self._emit_payload(payload, parsed["json"])
+
+    def _parse_options(self, options) -> dict[str, object]:
+        """Parse CLI options and emit deprecation warnings."""
         self.stderr.write(
             self.style.WARNING(
                 "This command is deprecated; please use `media_maintenance --heal`."
             )
         )
-
-        public_ids: Sequence[int] | None = options.get("public_ids")
-        resolutions: Sequence[str] | None = options.get("resolutions")
-        wants_json: bool = bool(options.get("json"))
-
         if options.get("write"):
             self.stderr.write(
                 self.style.WARNING(
@@ -73,7 +77,16 @@ class Command(BaseCommand):
                     "--rebuild-master is ignored; master playlists are handled automatically."
                 )
             )
+        return {
+            "public_ids": options.get("public_ids"),
+            "resolutions": options.get("resolutions"),
+            "json": bool(options.get("json")),
+        }
 
+    def _build_media_maintenance_args(
+        self, public_ids: Sequence[int] | None, resolutions: Sequence[str] | None
+    ) -> list[str]:
+        """Construct arguments for the delegated media_maintenance call."""
         args: list[str] = ["--heal"]
         if public_ids:
             for pid in public_ids:
@@ -81,9 +94,7 @@ class Command(BaseCommand):
         if resolutions:
             for res in resolutions:
                 args.extend(["--res", res])
-
-        payload = self._run_media_maintenance(args)
-        self._emit_payload(payload, wants_json)
+        return args
 
     def _run_media_maintenance(self, base_args: list[str]) -> dict:
         """Execute media_maintenance and parse the JSON response."""

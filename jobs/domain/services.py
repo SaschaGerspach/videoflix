@@ -302,13 +302,33 @@ def enqueue_transcode(
     target_resolutions: Iterable[str] | None = None,
     force: bool = False,
 ) -> dict | None:
-    """Start an ffmpeg-based HLS transcode for the given video.
-
-    Raises TranscodeError when a conflicting job is running, ffmpeg is missing,
-    or when the operation fails unexpectedly.
-    """
+    """Start an ffmpeg-based HLS transcode for the given video."""
     resolutions = _prepare_resolutions(target_resolutions)
+    pending_resolutions = _collect_pending_resolutions(video_id, resolutions)
+    if not pending_resolutions:
+        return _mark_ready_and_thumbnail(video_id)
 
+    if getattr(settings, "IS_TEST_ENV", False):
+        return invoke_run_transcode_job(video_id, pending_resolutions, force=force)
+
+    pending_key = transcode_pending_key(video_id)
+    queue = transcode_queue.get_transcode_queue()
+
+    _clear_stale_pending_if_needed(queue, pending_key, video_id)
+    _raise_if_transcode_locked(pending_key, video_id)
+
+    enqueue_result = _enqueue_with_queue(queue, video_id, pending_resolutions, force)
+    if enqueue_result is not None:
+        return enqueue_result
+
+    logger.info(
+        "RQ queue not available; running inline transcode: video_id=%s", video_id
+    )
+    return invoke_run_transcode_job(video_id, pending_resolutions, force=force)
+
+
+def _collect_pending_resolutions(video_id: int, resolutions: list[str]) -> list[str]:
+    """Filter out resolutions that already have manifests on disk."""
     pending_resolutions: list[str] = []
     for resolution in resolutions:
         manifest_path = manifest_path_for(video_id, resolution)
@@ -320,38 +340,35 @@ def enqueue_transcode(
             )
             continue
         pending_resolutions.append(resolution)
+    return pending_resolutions
 
-    if not pending_resolutions:
-        cache.delete(transcode_pending_key(video_id))
-        cache.delete(transcode_lock_key(video_id))
-        mark_transcode_ready(video_id)
-        try:
-            thumbnail_result = enqueue_thumbnail(video_id)
-            if not thumbnail_result.get("ok"):
-                logger.debug(
-                    "Thumbnail skipped after transcode check: video_id=%s",
-                    video_id,
-                )
-        except Exception as exc:  # pragma: no cover - defensive only
+
+def _mark_ready_and_thumbnail(video_id: int) -> dict:
+    """Mark transcode ready and attempt thumbnail when no work is needed."""
+    cache.delete(transcode_pending_key(video_id))
+    cache.delete(transcode_lock_key(video_id))
+    mark_transcode_ready(video_id)
+    try:
+        thumbnail_result = enqueue_thumbnail(video_id)
+        if not thumbnail_result.get("ok"):
             logger.debug(
-                "Thumbnail trigger failed after transcode check: video_id=%s, error=%s",
+                "Thumbnail skipped after transcode check: video_id=%s",
                 video_id,
-                exc,
             )
-        return {
-            "ok": True,
-            "message": f"Transcode skipped for video {video_id}; renditions already exist.",
-        }
+    except Exception as exc:  # pragma: no cover - defensive only
+        logger.debug(
+            "Thumbnail trigger failed after transcode check: video_id=%s, error=%s",
+            video_id,
+            exc,
+        )
+    return {
+        "ok": True,
+        "message": f"Transcode skipped for video {video_id}; renditions already exist.",
+    }
 
-    resolutions = pending_resolutions
 
-    if getattr(settings, "IS_TEST_ENV", False):
-        return invoke_run_transcode_job(video_id, resolutions, force=force)
-
-    pending_key = transcode_pending_key(video_id)
-    queue = transcode_queue.get_transcode_queue()
-    queue_name = queue.name if queue is not None else ""
-
+def _clear_stale_pending_if_needed(queue, pending_key: str, video_id: int) -> None:
+    """Drop stale pending flag when queue exists and lock is absent."""
     if queue and cache.get(pending_key) and not is_transcode_locked(video_id):
         try:
             if not getattr(
@@ -366,44 +383,46 @@ def enqueue_transcode(
                 "Pending sanity check failed: video_id=%s, error=%s", video_id, exc
             )
 
+
+def _raise_if_transcode_locked(pending_key: str, video_id: int) -> None:
+    """Raise TranscodeError when a pending flag or lock is present."""
     if cache.get(pending_key) or is_transcode_locked(video_id):
         raise TranscodeError("Transcode already in progress.", status_code=409)
 
-    if queue is not None:
-        try:
-            enqueue_result = transcode_queue.enqueue_transcode_job(
-                video_id,
-                resolutions,
-                queue=queue,
-                force=force,
-            )
-        except (TranscodeError, ValidationError):
-            raise
-        except (
-            Exception
-        ) as exc:  # pragma: no cover - defensive logging handled upstream
-            logger.info(
-                "RQ unavailable, running inline transcode: video_id=%s, queue=%s, error=%s",
-                video_id,
-                getattr(queue, "name", queue_name),
-                exc,
-            )
-        else:
-            if isinstance(enqueue_result, dict) and enqueue_result.get("job_id"):
-                cache.set(pending_key, True, timeout=PENDING_TTL_SECONDS)
-            logger.info(
-                "Transcode enqueued on RQ: video_id=%s, queue=%s, profiles=%s",
-                video_id,
-                queue.name,
-                resolutions,
-            )
-            return enqueue_result
-    else:
-        logger.info(
-            "RQ queue not available; running inline transcode: video_id=%s", video_id
-        )
 
-    return invoke_run_transcode_job(video_id, resolutions, force=force)
+def _enqueue_with_queue(queue, video_id: int, resolutions: list[str], force: bool):
+    """Attempt to enqueue on RQ; return result or None to fall back inline."""
+    if queue is None:
+        return None
+
+    queue_name = queue.name if queue is not None else ""
+    try:
+        enqueue_result = transcode_queue.enqueue_transcode_job(
+            video_id,
+            resolutions,
+            queue=queue,
+            force=force,
+        )
+    except (TranscodeError, ValidationError):
+        raise
+    except Exception as exc:  # pragma: no cover - defensive logging handled upstream
+        logger.info(
+            "RQ unavailable, running inline transcode: video_id=%s, queue=%s, error=%s",
+            video_id,
+            getattr(queue, "name", queue_name),
+            exc,
+        )
+        return None
+
+    if isinstance(enqueue_result, dict) and enqueue_result.get("job_id"):
+        cache.set(transcode_pending_key(video_id), True, timeout=PENDING_TTL_SECONDS)
+    logger.info(
+        "Transcode enqueued on RQ: video_id=%s, queue=%s, profiles=%s",
+        video_id,
+        queue.name,
+        resolutions,
+    )
+    return enqueue_result
 
 
 def _run_ffmpeg_for_profile(video_id: int, source: Path, resolution: str) -> None:
@@ -598,83 +617,20 @@ def run_transcode_job(
     video_id: int, resolutions: Iterable[str], *, force: bool = False
 ) -> dict | None:
     """Run ffmpeg for the requested resolutions and update bookkeeping around locks/status."""
-    lock_key = transcode_lock_key(video_id)
-    pending_key = transcode_pending_key(video_id)
-    if not cache.add(lock_key, True, timeout=TRANSCODE_LOCK_TTL_SECONDS):
-        raise TranscodeError("Transcode already in progress.", status_code=409)
-
+    lock_key, pending_key = _acquire_transcode_lock(video_id)
     try:
         cache.delete(pending_key)
         mark_transcode_processing(video_id)
 
-        try:
-            video = Video.objects.get(pk=video_id)
-        except Video.DoesNotExist as exc:
-            mark_transcode_failed(video_id, "Video record not found.")
-            cache.delete(lock_key)
-            cache.delete(pending_key)
-            raise TranscodeError("Video record not found.", status_code=404) from exc
-
-        checked_sources: list[Path] = []
-        source_path = resolve_source_path(video, checked_paths=checked_sources)
-
-        if not source_path or not source_path.exists():
-            candidate_str = ", ".join(str(path) for path in checked_sources) or "none"
-            if getattr(settings, "ENV", "").lower() == "test":
-                mark_transcode_ready(video_id)
-                try:
-                    thumbnail_result = enqueue_thumbnail(video_id)
-                    if not thumbnail_result.get("ok"):
-                        logger.debug(
-                            "Thumbnail skipped after test transcode trigger: video_id=%s",
-                            video_id,
-                        )
-                except Exception as exc:  # pragma: no cover - defensive only
-                    logger.debug(
-                        "Thumbnail trigger failed in test shortcut: video_id=%s, error=%s",
-                        video_id,
-                        exc,
-                    )
-                return {
-                    "ok": True,
-                    "message": f"Transcode triggered for video {video_id} ({', '.join(resolutions)})",
-                }
-            mark_transcode_failed(video_id, "Video source not found.")
-            logger.warning(
-                "Transcode failed (missing source): video_id=%s, checked=%s",
-                video_id,
-                candidate_str,
-            )
-            raise TranscodeError(
-                f"Video source not found. Checked: {candidate_str}",
-                status_code=500,
-            )
-
-        for resolution in resolutions:
-            _run_ffmpeg_for_profile(video_id, source_path, resolution)
-
-        from videos.domain import hls as hls_utils
-
-        hls_utils.write_master_playlist(video_id)
-        mark_transcode_ready(video_id)
-        try:
-            thumbnail_result = enqueue_thumbnail(video_id)
-            if not thumbnail_result.get("ok"):
-                logger.debug(
-                    "Thumbnail skipped after transcode: video_id=%s",
-                    video_id,
-                )
-        except Exception as exc:  # pragma: no cover - defensive only
-            logger.debug(
-                "Thumbnail trigger failed after transcode: video_id=%s, error=%s",
-                video_id,
-                exc,
-            )
-        logger.info(
-            "Transcode finished: video_id=%s, profiles=%s",
-            video_id,
-            resolutions,
+        video = _load_video_or_fail(video_id, lock_key, pending_key)
+        source_path, checked_sources, shortcut_response = _resolve_source_or_fail(
+            video, video_id, resolutions
         )
+        if shortcut_response is not None:
+            return shortcut_response
+
+        _run_profiles(video_id, source_path, resolutions)
+        _finalize_success(video_id, resolutions)
     except FileNotFoundError:
         mark_transcode_failed(video_id, "ffmpeg not found")
         logger.error("Transcode failed (ffmpeg not found): video_id=%s", video_id)
@@ -691,6 +647,105 @@ def run_transcode_job(
         cache.delete(lock_key)
         cache.delete(pending_key)
         logger.info("Transcode lock released: video_id=%s", video_id)
+
+
+def _acquire_transcode_lock(video_id: int) -> tuple[str, str]:
+    """Acquire the transcode lock or raise 409 if already locked."""
+    lock_key = transcode_lock_key(video_id)
+    pending_key = transcode_pending_key(video_id)
+    if not cache.add(lock_key, True, timeout=TRANSCODE_LOCK_TTL_SECONDS):
+        raise TranscodeError("Transcode already in progress.", status_code=409)
+    return lock_key, pending_key
+
+
+def _load_video_or_fail(video_id: int, lock_key: str, pending_key: str) -> Video:
+    """Fetch the Video or mark failure and raise when missing."""
+    try:
+        return Video.objects.get(pk=video_id)
+    except Video.DoesNotExist as exc:
+        mark_transcode_failed(video_id, "Video record not found.")
+        cache.delete(lock_key)
+        cache.delete(pending_key)
+        raise TranscodeError("Video record not found.", status_code=404) from exc
+
+
+def _resolve_source_or_fail(
+    video: Video, video_id: int, resolutions: Iterable[str]
+) -> tuple[Path | None, list[Path], dict | None]:
+    """Resolve the source path or raise TranscodeError when not found."""
+    checked_sources: list[Path] = []
+    source_path = resolve_source_path(video, checked_paths=checked_sources)
+
+    if source_path and source_path.exists():
+        return source_path, checked_sources, None
+
+    candidate_str = ", ".join(str(path) for path in checked_sources) or "none"
+    if getattr(settings, "ENV", "").lower() == "test":
+        mark_transcode_ready(video_id)
+        try:
+            thumbnail_result = enqueue_thumbnail(video_id)
+            if not thumbnail_result.get("ok"):
+                logger.debug(
+                    "Thumbnail skipped after test transcode trigger: video_id=%s",
+                    video_id,
+                )
+        except Exception as exc:  # pragma: no cover - defensive only
+            logger.debug(
+                "Thumbnail trigger failed in test shortcut: video_id=%s, error=%s",
+                video_id,
+                exc,
+            )
+        return (
+            source_path,
+            checked_sources,
+            {
+                "ok": True,
+                "message": f"Transcode triggered for video {video_id} ({', '.join(resolutions)})",
+            },
+        )
+
+    mark_transcode_failed(video_id, "Video source not found.")
+    logger.warning(
+        "Transcode failed (missing source): video_id=%s, checked=%s",
+        video_id,
+        candidate_str,
+    )
+    raise TranscodeError(
+        f"Video source not found. Checked: {candidate_str}",
+        status_code=500,
+    )
+
+
+def _run_profiles(video_id: int, source_path: Path, resolutions: Iterable[str]) -> None:
+    """Run ffmpeg for each requested resolution."""
+    for resolution in resolutions:
+        _run_ffmpeg_for_profile(video_id, source_path, resolution)
+
+
+def _finalize_success(video_id: int, resolutions: Iterable[str]) -> None:
+    """Write master playlist, mark ready, trigger thumbnail, and log success."""
+    from videos.domain import hls as hls_utils
+
+    hls_utils.write_master_playlist(video_id)
+    mark_transcode_ready(video_id)
+    try:
+        thumbnail_result = enqueue_thumbnail(video_id)
+        if not thumbnail_result.get("ok"):
+            logger.debug(
+                "Thumbnail skipped after transcode: video_id=%s",
+                video_id,
+            )
+    except Exception as exc:  # pragma: no cover - defensive only
+        logger.debug(
+            "Thumbnail trigger failed after transcode: video_id=%s, error=%s",
+            video_id,
+            exc,
+        )
+    logger.info(
+        "Transcode finished: video_id=%s, profiles=%s",
+        video_id,
+        resolutions,
+    )
 
 
 def enqueue_thumbnail(video_id: int) -> dict[str, Any]:

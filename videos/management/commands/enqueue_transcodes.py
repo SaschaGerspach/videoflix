@@ -75,6 +75,11 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         """Inspect requested identifiers and enqueue/skip per CLI options."""
+        parsed = self._parse_options(options)
+        self._perform_enqueue(**parsed)
+
+    def _parse_options(self, options) -> dict[str, object]:
+        """Validate CLI options and normalise identifier lists."""
         public_inputs = _flatten(options.get("public_ids"))
         real_inputs = _flatten(options.get("real_ids"))
         resolution: str = options["res"]
@@ -83,7 +88,57 @@ class Command(BaseCommand):
 
         if not public_inputs and not real_inputs:
             raise CommandError("Provide at least one --public or --real identifier.")
+        return {
+            "public_inputs": public_inputs,
+            "real_inputs": real_inputs,
+            "resolution": resolution,
+            "dry_run": dry_run,
+            "force": force,
+        }
 
+    def _perform_enqueue(
+        self,
+        *,
+        public_inputs: list[int],
+        real_inputs: list[int],
+        resolution: str,
+        dry_run: bool,
+        force: bool,
+    ) -> None:
+        """Execute the enqueue logic using the parsed options."""
+        targets = self._resolve_targets(public_inputs, real_inputs)
+        action_prefix = "DRY-RUN: would queue" if dry_run else "Queued"
+
+        if dry_run:
+            self._report_dry_run(
+                targets["target_real_ids"],
+                resolution,
+                action_prefix,
+                targets["public_mappings"],
+                real_inputs,
+            )
+            return
+
+        enqueued, skipped, failures = self._enqueue_real_ids(
+            targets["target_real_ids"],
+            resolution,
+            targets["videos"],
+            force,
+        )
+        self._print_summary(
+            enqueued,
+            skipped,
+            failures,
+            resolution,
+            action_prefix,
+            targets["public_mappings"],
+            real_inputs,
+        )
+
+    def _resolve_targets(
+        self, public_inputs: list[int], real_inputs: list[int]
+    ) -> dict[str, object]:
+        """Resolve public/real identifiers into concrete targets and videos."""
         public_mappings: list[tuple[int, int]] = []
         resolved_real_ids: list[int] = []
 
@@ -114,7 +169,11 @@ class Command(BaseCommand):
 
         if not target_real_ids:
             self.stdout.write("No videos to process.")
-            return
+            return {
+                "target_real_ids": [],
+                "videos": {},
+                "public_mappings": public_mappings,
+            }
 
         videos = {
             video.pk: video for video in Video.objects.filter(pk__in=target_real_ids)
@@ -125,29 +184,44 @@ class Command(BaseCommand):
                 f"Video(s) not found for real id(s): {', '.join(str(v) for v in missing_videos)}"
             )
 
-        action_prefix = "DRY-RUN: would queue" if dry_run else "Queued"
+        return {
+            "target_real_ids": target_real_ids,
+            "videos": videos,
+            "public_mappings": public_mappings,
+        }
 
-        if dry_run:
-            for real_id in target_real_ids:
-                manifest_path = self._manifest_path(real_id, resolution)
-                if manifest_path.exists():
-                    status = "stub" if is_stub_manifest(manifest_path) else "existing"
-                else:
-                    status = "missing"
-                self.stdout.write(
-                    f"{action_prefix} {resolution} for {real_id} ({status})"
-                )
-            if public_mappings:
-                public_part = ", ".join(str(pub) for pub, _ in public_mappings)
-                real_part = ", ".join(str(real) for _, real in public_mappings)
-                self.stdout.write(
-                    f"Mapping: {public_part} (public) -> {real_part} (real)"
-                )
-            if real_inputs:
-                explicit = ", ".join(str(rid) for rid in _unique(real_inputs))
-                self.stdout.write(f"Explicit real ids: {explicit}")
-            return
+    def _report_dry_run(
+        self,
+        target_real_ids: list[int],
+        resolution: str,
+        action_prefix: str,
+        public_mappings: list[tuple[int, int]],
+        real_inputs: list[int],
+    ) -> None:
+        """Print dry-run diagnostics for the selected targets."""
+        for real_id in target_real_ids:
+            manifest_path = self._manifest_path(real_id, resolution)
+            if manifest_path.exists():
+                status = "stub" if is_stub_manifest(manifest_path) else "existing"
+            else:
+                status = "missing"
+            self.stdout.write(f"{action_prefix} {resolution} for {real_id} ({status})")
+        if public_mappings:
+            public_part = ", ".join(str(pub) for pub, _ in public_mappings)
+            real_part = ", ".join(str(real) for _, real in public_mappings)
+            self.stdout.write(f"Mapping: {public_part} (public) -> {real_part} (real)")
+        if real_inputs:
+            explicit = ", ".join(str(rid) for rid in _unique(real_inputs))
+            self.stdout.write(f"Explicit real ids: {explicit}")
 
+    def _enqueue_real_ids(
+        self,
+        target_real_ids: list[int],
+        resolution: str,
+        videos: dict[int, Video],
+        force: bool,
+    ) -> tuple[list[int], list[int], list[str]]:
+        """Enqueue transcodes for concrete real IDs and return results."""
         enqueued: list[int] = []
         skipped: list[int] = []
         failures: list[str] = []
@@ -182,6 +256,19 @@ class Command(BaseCommand):
             else:
                 enqueued.append(real_id)
 
+        return enqueued, skipped, failures
+
+    def _print_summary(
+        self,
+        enqueued: list[int],
+        skipped: list[int],
+        failures: list[str],
+        resolution: str,
+        action_prefix: str,
+        public_mappings: list[tuple[int, int]],
+        real_inputs: list[int],
+    ) -> None:
+        """Emit final summary lines and raise on failures."""
         if failures:
             for message in failures:
                 self.stderr.write(message)

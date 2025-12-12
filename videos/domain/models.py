@@ -7,7 +7,7 @@ from .choices import VideoCategory
 class Video(models.Model):
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
         related_name="videos",
         null=True,
         blank=True,

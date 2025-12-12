@@ -10,6 +10,7 @@ from django.http import FileResponse
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.renderers import JSONRenderer
+from rest_framework.response import Response
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
@@ -75,23 +76,13 @@ class VideoSegmentContentView(MediaSegmentBaseView):
     def get(self, request, movie_id: int, resolution: str, segment: str):
         """Return the segment file from disk or DB while preserving cache headers."""
         self._log_debug_request(request)
-        real_id = self._resolve_real_id(movie_id)
-        if real_id is None:
-            return self._not_found_json()
+        resolved = self._resolve_and_authorize_segment(
+            request, movie_id, resolution, segment
+        )
+        if isinstance(resolved, Response):
+            return resolved
 
-        validation = self._validate_request(real_id, resolution, segment)
-        if not isinstance(validation, dict):
-            return validation
-
-        resolution_value = validation["resolution"]
-        requested_name = validation["segment"]
-
-        video = self._get_video_or_404(real_id)
-        if video is None:
-            return self._not_found_json()
-
-        if not _user_can_access(request, video):
-            return self._not_found_json()
+        real_id, resolution_value, requested_name = resolved
 
         base_dir = self._segment_base_dir(real_id, resolution_value)
         candidates, padded_name = self._segment_candidates(requested_name)
@@ -130,6 +121,30 @@ class VideoSegmentContentView(MediaSegmentBaseView):
                     requested_name,
                 )
         return response
+
+    def _resolve_and_authorize_segment(
+        self, request, movie_id: int | str, resolution: str, segment: str
+    ) -> Response | tuple[int, str, str]:
+        """Resolve IDs, validate payload, and ensure requester can access video."""
+        real_id = self._resolve_real_id(movie_id)
+        if real_id is None:
+            return self._not_found_json()
+
+        validation = self._validate_request(real_id, resolution, segment)
+        if not isinstance(validation, dict):
+            return validation
+
+        resolution_value = validation["resolution"]
+        requested_name = validation["segment"]
+
+        video = self._get_video_or_404(real_id)
+        if video is None:
+            return self._not_found_json()
+
+        if not _user_can_access(request, video):
+            return self._not_found_json()
+
+        return real_id, resolution_value, requested_name
 
     def _log_debug_request(self, request) -> None:
         """Log request details when DEBUG is enabled for troubleshooting."""

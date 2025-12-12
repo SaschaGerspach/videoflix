@@ -28,53 +28,21 @@ def ensure_thumbnail(
     allow_overwrite: bool = False,
 ) -> Path | None:
     """Use ffmpeg to materialise a thumbnail for the given video."""
-    source_path = job_services.get_video_source_path(video_id)
-    if not source_path.exists():
-        logger.info("Thumbnail skipped (source missing): video_id=%s", video_id)
+    context = _resolve_thumbnail_context(
+        video_id, timestamp=timestamp, width=width, height=height, size=size
+    )
+    if context is None:
         return None
 
-    timestamp = timestamp or getattr(settings, "THUMB_TIMESTAMP", "00:00:03")
-    width = width or getattr(settings, "THUMB_WIDTH", 320)
-    height = height or getattr(settings, "THUMB_HEIGHT", 180)
-
-    output_path = get_thumbnail_path(video_id, size=size)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path = context["output_path"]
     if output_path.exists() and not allow_overwrite:
         logger.info(
             "Thumbnail skipped (exists): video_id=%s, path=%s", video_id, output_path
         )
         return output_path
 
-    filter_expr = (
-        f"scale='if(gt(a,16/9),-2,{width})':'if(gt(a,16/9),{height},-2)',"
-        f"crop={width}:{height}"
-    )
-
-    cmd = [
-        "ffmpeg",
-        "-y",
-        "-ss",
-        str(timestamp),
-        "-i",
-        str(source_path),
-        "-vframes",
-        "1",
-        "-vf",
-        filter_expr,
-        str(output_path),
-    ]
-
-    try:
-        subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    except FileNotFoundError:
-        logger.warning("Thumbnail failed (ffmpeg missing): video_id=%s", video_id)
-        return None
-    except subprocess.CalledProcessError as exc:
-        logger.warning(
-            "Thumbnail failed (process error): video_id=%s, returncode=%s",
-            video_id,
-            getattr(exc, "returncode", "?"),
-        )
+    cmd = _build_thumbnail_command(context)
+    if not _run_thumbnail_command(cmd, video_id):
         return None
 
     logger.info("Thumbnail generated: video_id=%s, path=%s", video_id, output_path)
@@ -204,3 +172,71 @@ def _resolve_video_id(video: Any) -> int | None:
         return int(video)
     except (TypeError, ValueError):
         return None
+
+
+def _resolve_thumbnail_context(
+    video_id: int,
+    *,
+    timestamp: str | None,
+    width: int | None,
+    height: int | None,
+    size: str,
+) -> dict[str, Any] | None:
+    """Build the thumbnail generation context or return None when source is missing."""
+    source_path = job_services.get_video_source_path(video_id)
+    if not source_path.exists():
+        logger.info("Thumbnail skipped (source missing): video_id=%s", video_id)
+        return None
+
+    resolved_timestamp = timestamp or getattr(settings, "THUMB_TIMESTAMP", "00:00:03")
+    resolved_width = width or getattr(settings, "THUMB_WIDTH", 320)
+    resolved_height = height or getattr(settings, "THUMB_HEIGHT", 180)
+    output_path = get_thumbnail_path(video_id, size=size)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    return {
+        "source_path": source_path,
+        "timestamp": resolved_timestamp,
+        "width": resolved_width,
+        "height": resolved_height,
+        "output_path": output_path,
+        "size": size,
+    }
+
+
+def _build_thumbnail_command(context: dict[str, Any]) -> list[str]:
+    """Construct the ffmpeg command for thumbnail generation."""
+    filter_expr = (
+        f"scale='if(gt(a,16/9),-2,{context['width']})':'if(gt(a,16/9),{context['height']},-2)',"
+        f"crop={context['width']}:{context['height']}"
+    )
+    return [
+        "ffmpeg",
+        "-y",
+        "-ss",
+        str(context["timestamp"]),
+        "-i",
+        str(context["source_path"]),
+        "-vframes",
+        "1",
+        "-vf",
+        filter_expr,
+        str(context["output_path"]),
+    ]
+
+
+def _run_thumbnail_command(cmd: list[str], video_id: int) -> bool:
+    """Execute the ffmpeg command, logging failures and returning success flag."""
+    try:
+        subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except FileNotFoundError:
+        logger.warning("Thumbnail failed (ffmpeg missing): video_id=%s", video_id)
+        return False
+    except subprocess.CalledProcessError as exc:
+        logger.warning(
+            "Thumbnail failed (process error): video_id=%s, returncode=%s",
+            video_id,
+            getattr(exc, "returncode", "?"),
+        )
+        return False
+    return True

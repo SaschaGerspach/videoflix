@@ -18,6 +18,8 @@ MANIFEST_TEMPLATE = """#EXTM3U
 
 
 class Command(BaseCommand):
+    """Seed demo HLS renditions for development previews."""
+
     help = "Seed demo HLS renditions for quick development previews."
 
     def add_arguments(self, parser):
@@ -53,25 +55,47 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        real_ids: list[int] | None = options.get("real_ids")
-        resolution: str = options["res"]
-        allow_no_source: bool = options["allow_no_source"]
-        force: bool = options["force"]
+        """Parse options, seed renditions, and report aggregated failures."""
+        parsed = self._parse_options(options)
+        failures = self._seed_all(
+            parsed["real_ids"],
+            parsed["resolution"],
+            parsed["allow_no_source"],
+            parsed["force"],
+        )
+        self._report_failures(failures)
 
+    def _parse_options(self, options) -> dict[str, object]:
+        """Extract CLI options and validate required identifiers."""
+        real_ids: list[int] | None = options.get("real_ids")
         if not real_ids:
             raise CommandError("Provide at least one --real identifier.")
+        return {
+            "real_ids": real_ids,
+            "resolution": options["res"],
+            "allow_no_source": options["allow_no_source"],
+            "force": options["force"],
+        }
 
+    def _seed_all(
+        self, real_ids: list[int], resolution: str, allow_no_source: bool, force: bool
+    ) -> list[str]:
+        """Seed all requested renditions and collect any failures."""
         failures: list[str] = []
         for real_id in real_ids:
             try:
                 self._seed_rendition(real_id, resolution, allow_no_source, force)
             except Exception as exc:  # pragma: no cover - aggregated reporting
                 failures.append(f"{real_id}: {exc}")
+        return failures
 
-        if failures:
-            for line in failures:
-                self.stderr.write(line)
-            raise CommandError(f"Failed to seed {len(failures)} video(s).")
+    def _report_failures(self, failures: list[str]) -> None:
+        """Emit aggregated failure messages or exit silently on success."""
+        if not failures:
+            return
+        for line in failures:
+            self.stderr.write(line)
+        raise CommandError(f"Failed to seed {len(failures)} video(s).")
 
     def _seed_rendition(
         self,

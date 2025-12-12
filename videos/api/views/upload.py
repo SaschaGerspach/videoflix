@@ -80,32 +80,12 @@ class VideoUploadView(APIView):
         self._store_upload(file_obj, target_path, video_id)
 
         missing_resolutions = self._collect_missing_resolutions(video_id)
-        if not missing_resolutions:
-            return Response(
-                {"detail": "Upload ok", "video_id": video_id},
-                status=status.HTTP_201_CREATED,
-            )
-
-        if is_transcode_locked(video_id):
-            logger.info(
-                "Upload processed, transcode currently locked: video_id=%s, pending_resolutions=%s",
-                video_id,
-                missing_resolutions,
-            )
-            return Response(
-                {"detail": "Upload ok", "video_id": video_id},
-                status=status.HTTP_201_CREATED,
-            )
-
-        enqueue_response = self._enqueue_transcode(video_id, missing_resolutions)
-        if enqueue_response is not None:
-            return enqueue_response
-
-        logger.info(
-            "Upload auto-transcode queued: video_id=%s, resolutions=%s",
-            video_id,
-            missing_resolutions,
+        transcode_response = self._handle_missing_resolutions(
+            video_id, missing_resolutions
         )
+        if transcode_response is not None:
+            return transcode_response
+
         return Response(
             {"detail": "Upload ok", "video_id": video_id},
             status=status.HTTP_201_CREATED,
@@ -135,6 +115,39 @@ class VideoUploadView(APIView):
                 ),
             )
         return upload_candidate, None
+
+    def _handle_missing_resolutions(
+        self, video_id: int, missing_resolutions: list[str]
+    ) -> Response | None:
+        """Handle auto-transcode workflow for missing renditions."""
+        if not missing_resolutions:
+            logger.info("Upload processed, no transcode needed: video_id=%s", video_id)
+            return Response(
+                {"detail": "Upload ok", "video_id": video_id},
+                status=status.HTTP_201_CREATED,
+            )
+
+        if is_transcode_locked(video_id):
+            logger.info(
+                "Upload processed, transcode currently locked: video_id=%s, pending_resolutions=%s",
+                video_id,
+                missing_resolutions,
+            )
+            return Response(
+                {"detail": "Upload ok", "video_id": video_id},
+                status=status.HTTP_201_CREATED,
+            )
+
+        enqueue_response = self._enqueue_transcode(video_id, missing_resolutions)
+        if enqueue_response is not None:
+            return enqueue_response
+
+        logger.info(
+            "Upload auto-transcode queued: video_id=%s, resolutions=%s",
+            video_id,
+            missing_resolutions,
+        )
+        return None
 
     def _get_video_or_404(self, video_id: int):
         """Fetch the video or return a 404 Response."""

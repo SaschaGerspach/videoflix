@@ -56,8 +56,7 @@ def index_existing_rendition(real_id: int, resolution: str) -> dict[str, object]
     """
     Persist manifest text and segment binaries from the file system into the database.
     """
-    outcome = {"created": False, "updated": False, "segments": 0, "bytes": 0}
-
+    outcome = _init_index_outcome()
     manifest_found, manifest_path, segment_paths = fs_rendition_exists(
         real_id, resolution
     )
@@ -74,9 +73,8 @@ def index_existing_rendition(real_id: int, resolution: str) -> dict[str, object]
         )
         return outcome
 
-    try:
-        manifest_bytes = manifest_path.read_bytes()
-    except OSError:
+    manifest_bytes = _read_manifest_bytes(manifest_path)
+    if manifest_bytes is None:
         return outcome
 
     if is_stub_manifest(manifest_bytes):
@@ -88,14 +86,56 @@ def index_existing_rendition(real_id: int, resolution: str) -> dict[str, object]
         return outcome
 
     manifest_text = manifest_bytes.decode("utf-8", "ignore")
+    _log_missing_segments(segment_paths, real_id, resolution)
 
-    if not segment_paths:
+    payloads, total_bytes = _collect_segment_payloads(segment_paths)
+    outcome["segments"] = len(payloads)
+    outcome["bytes"] = total_bytes
+
+    try:
+        outcome = _persist_rendition_data(
+            real_id, resolution, manifest_text, payloads, outcome
+        )
+    except IntegrityError:
         logger.warning(
-            "Manifest present but no segments for video_id=%s resolution=%s",
+            "Integrity error while indexing video_id=%s resolution=%s",
             real_id,
             resolution,
         )
+        return outcome
 
+    _log_index_result(real_id, resolution, outcome)
+    return outcome
+
+
+def _init_index_outcome() -> dict[str, object]:
+    """Return the default outcome structure for indexing results."""
+    return {"created": False, "updated": False, "segments": 0, "bytes": 0}
+
+
+def _read_manifest_bytes(manifest_path: Path) -> bytes | None:
+    """Read manifest bytes safely, returning None on failure."""
+    try:
+        return manifest_path.read_bytes()
+    except OSError:
+        return None
+
+
+def _log_missing_segments(segment_paths: list[Path], real_id: int, resolution: str):
+    """Log when a manifest exists but no segments were found."""
+    if segment_paths:
+        return
+    logger.warning(
+        "Manifest present but no segments for video_id=%s resolution=%s",
+        real_id,
+        resolution,
+    )
+
+
+def _collect_segment_payloads(
+    segment_paths: list[Path],
+) -> tuple[dict[str, bytes], int]:
+    """Read segment files into payloads and return payload dict plus total bytes."""
     payloads: dict[str, bytes] = {}
     total_bytes = 0
     for path in segment_paths:
@@ -105,55 +145,60 @@ def index_existing_rendition(real_id: int, resolution: str) -> dict[str, object]
             continue
         payloads[path.name] = data
         total_bytes += len(data)
+    return payloads, total_bytes
 
-    outcome["segments"] = len(payloads)
-    outcome["bytes"] = total_bytes
 
-    try:
-        with transaction.atomic():
-            stream, created = VideoStream.objects.get_or_create(
-                video_id=real_id,
-                resolution=resolution,
-                defaults={"manifest": manifest_text},
-            )
-            outcome["created"] = created
-            updated = False
-
-            if not created and stream.manifest != manifest_text:
-                stream.manifest = manifest_text
-                stream.save(update_fields=["manifest"])
-                updated = True
-
-            if payloads:
-                existing_qs = VideoSegment.objects.filter(
-                    stream=stream,
-                    name__in=list(payloads.keys()),
-                )
-                existing = {segment.name: segment for segment in existing_qs}
-
-                for name, payload in payloads.items():
-                    segment = existing.get(name)
-                    if segment is None:
-                        VideoSegment.objects.create(
-                            stream=stream, name=name, content=payload
-                        )
-                        updated = True
-                        continue
-                    current_bytes = bytes(segment.content or b"")
-                    if current_bytes != payload:
-                        segment.content = payload
-                        segment.save(update_fields=["content"])
-                        updated = True
-
-            outcome["updated"] = updated
-    except IntegrityError:
-        logger.warning(
-            "Integrity error while indexing video_id=%s resolution=%s",
-            real_id,
-            resolution,
+def _persist_rendition_data(
+    real_id: int,
+    resolution: str,
+    manifest_text: str,
+    payloads: dict[str, bytes],
+    outcome: dict[str, object],
+) -> dict[str, object]:
+    """Persist manifest and segment payloads inside a transaction."""
+    with transaction.atomic():
+        stream, created = VideoStream.objects.get_or_create(
+            video_id=real_id,
+            resolution=resolution,
+            defaults={"manifest": manifest_text},
         )
-        return outcome
+        outcome["created"] = created
+        updated = False
 
+        if not created and stream.manifest != manifest_text:
+            stream.manifest = manifest_text
+            stream.save(update_fields=["manifest"])
+            updated = True
+
+        if payloads:
+            existing_qs = VideoSegment.objects.filter(
+                stream=stream,
+                name__in=list(payloads.keys()),
+            )
+            existing = {segment.name: segment for segment in existing_qs}
+
+            for name, payload in payloads.items():
+                segment = existing.get(name)
+                if segment is None:
+                    VideoSegment.objects.create(
+                        stream=stream, name=name, content=payload
+                    )
+                    updated = True
+                    continue
+                current_bytes = bytes(segment.content or b"")
+                if current_bytes != payload:
+                    segment.content = payload
+                    segment.save(update_fields=["content"])
+                    updated = True
+
+        outcome["updated"] = updated
+    return outcome
+
+
+def _log_index_result(
+    real_id: int, resolution: str, outcome: dict[str, object]
+) -> None:
+    """Log indexing outcomes while preserving prior messages."""
     if outcome["created"] or outcome["updated"]:
         logger.info(
             "Indexed HLS rendition video_id=%s resolution=%s created=%s updated=%s segments=%s bytes=%s",
@@ -170,5 +215,3 @@ def index_existing_rendition(real_id: int, resolution: str) -> dict[str, object]
             real_id,
             resolution,
         )
-
-    return outcome

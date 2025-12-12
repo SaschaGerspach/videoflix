@@ -21,6 +21,8 @@ def _allowed_resolutions() -> tuple[str, ...]:
 
 
 class Command(BaseCommand):
+    """Index existing filesystem renditions into database VideoStream/VideoSegment."""
+
     help = "Index existing HLS renditions from the filesystem into the database."
 
     def add_arguments(self, parser):
@@ -53,10 +55,26 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        """Orchestrate option parsing, target discovery, indexing, and reporting."""
+        parsed = self._parse_options(options)
+        targets = self._resolve_targets(
+            parsed["real_ids"],
+            parsed["public_ids"],
+            parsed["scan_all"],
+            parsed["resolution_filter"],
+        )
+        if not targets:
+            self._print_no_targets()
+            return
+
+        summary = self._run_indexing(targets)
+        self._print_summary(**summary)
+
+    def _parse_options(self, options) -> dict[str, object]:
+        """Extract CLI options and derive the resolution filter."""
         real_ids = options.get("real_ids") or []
         public_ids = options.get("public_ids") or []
         scan_all = bool(options.get("scan_all"))
-
         if not (real_ids or public_ids or scan_all):
             raise CommandError("Provide --real, --public, or --all.")
 
@@ -64,46 +82,73 @@ class Command(BaseCommand):
         if not resolutions:
             resolutions = _allowed_resolutions()
         resolution_filter = set(resolutions)
+        return {
+            "real_ids": real_ids,
+            "public_ids": public_ids,
+            "scan_all": scan_all,
+            "resolution_filter": resolution_filter,
+        }
 
+    def _resolve_targets(
+        self,
+        real_ids: Iterable[int],
+        public_ids: Iterable[int],
+        scan_all: bool,
+        resolution_filter: set[str],
+    ) -> set[tuple[int, str]]:
+        """Determine which (video, resolution) pairs should be indexed."""
         targets: set[tuple[int, str]] = set()
         targets.update(self._expand_real_ids(real_ids, resolution_filter))
         targets.update(self._expand_public_ids(public_ids, resolution_filter))
         if scan_all:
             targets.update(self._discover_all(resolution_filter))
+        return targets
 
-        if not targets:
-            self.stdout.write("No renditions matched the selected criteria.")
-            self.stdout.write("summary ok=0 updated=0 missing=0")
-            return
-
+    def _run_indexing(self, targets: set[tuple[int, str]]) -> dict[str, int]:
+        """Index all target renditions and return counts for summary output."""
         ok = 0
         updated = 0
         missing = 0
 
         for real_id, resolution in sorted(targets):
-            exists, manifest_path, segment_paths = fs_rendition_exists(
-                real_id, resolution
-            )
-            if not exists:
+            state = self._index_single_target(real_id, resolution)
+            if state == "missing":
                 missing += 1
-                self.stdout.write(f"missing {real_id}/{resolution}")
-                continue
-
-            result = index_existing_rendition(real_id, resolution)
-            segments = result.get("segments") or len(segment_paths)
-            total_bytes = result.get("bytes", 0)
-
-            if result.get("created") or result.get("updated"):
+            elif state == "updated":
                 updated += 1
-                state = "updated"
             else:
                 ok += 1
-                state = "ok"
 
-            self.stdout.write(
-                f"{state:>7} {real_id}/{resolution} segments={segments} bytes={total_bytes}"
-            )
+        return {"ok": ok, "updated": updated, "missing": missing}
 
+    def _index_single_target(self, real_id: int, resolution: str) -> str:
+        """Index one rendition and return its resulting state label."""
+        exists, manifest_path, segment_paths = fs_rendition_exists(real_id, resolution)
+        if not exists:
+            self.stdout.write(f"missing {real_id}/{resolution}")
+            return "missing"
+
+        result = index_existing_rendition(real_id, resolution)
+        segments = result.get("segments") or len(segment_paths)
+        total_bytes = result.get("bytes", 0)
+
+        if result.get("created") or result.get("updated"):
+            state = "updated"
+        else:
+            state = "ok"
+
+        self.stdout.write(
+            f"{state:>7} {real_id}/{resolution} segments={segments} bytes={total_bytes}"
+        )
+        return state
+
+    def _print_no_targets(self) -> None:
+        """Emit the no-targets messages when nothing matched the criteria."""
+        self.stdout.write("No renditions matched the selected criteria.")
+        self.stdout.write("summary ok=0 updated=0 missing=0")
+
+    def _print_summary(self, ok: int, updated: int, missing: int) -> None:
+        """Emit the final summary line."""
         self.stdout.write(f"summary ok={ok} updated={updated} missing={missing}")
 
     def _expand_real_ids(
